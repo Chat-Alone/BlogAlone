@@ -36,6 +36,8 @@
     ],
     "web_root": "/opt/blogalone/web",
     "uploads_root": "/var/lib/blogalone/uploads",
-    "session_ttl_seconds": 1209600
+    "session_ttl_seconds": 1209600,
+    "password_opslimit": 3,
+    "password_memlimit": 268435456
   }
 }

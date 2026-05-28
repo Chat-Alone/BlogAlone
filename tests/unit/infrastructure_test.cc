@@ -74,6 +74,8 @@ TEST(InfrastructureTest, ParsesApplicationCustomConfig)
     custom_config["uploads_root"] = "var/uploads";
     custom_config["web_root"] = "public";
     custom_config["session_ttl_seconds"] = 60;
+    custom_config["password_opslimit"] = 2;
+    custom_config["password_memlimit"] = 67'108'864;
 
     const auto parsed = blogalone::config::app_config_from_json(custom_config);
 
@@ -82,6 +84,8 @@ TEST(InfrastructureTest, ParsesApplicationCustomConfig)
     EXPECT_EQ(parsed.uploads_root, std::filesystem::path{"var/uploads"});
     EXPECT_EQ(parsed.web_root, std::filesystem::path{"public"});
     EXPECT_EQ(parsed.session_ttl_seconds, 60);
+    EXPECT_EQ(parsed.password_hash_options.opslimit, 2);
+    EXPECT_EQ(parsed.password_hash_options.memlimit, 67'108'864);
 }
 
 TEST(InfrastructureTest, RejectsInvalidCustomConfig)

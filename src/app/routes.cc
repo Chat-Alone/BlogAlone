@@ -1,5 +1,6 @@
 #include "app/routes.h"
 
+#include "controllers/auth_controller.h"
 #include "controllers/health_controller.h"
 #include "controllers/page_controller.h"
 #include "http/api_error.h"
@@ -30,6 +31,7 @@ void register_routes()
 
     controllers::register_health_routes();
     controllers::register_page_routes();
+    controllers::register_auth_routes();
 }
 
 }
