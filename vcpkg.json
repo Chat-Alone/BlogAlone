@@ -1,0 +1,18 @@
+{
+  "name": "blogalone",
+  "version-string": "0.1.0",
+  "builtin-baseline": "56bb2411609227288b70117ead2c47585ba07713",
+  "dependencies": [
+    {
+      "name": "drogon",
+      "features": [
+        "sqlite3"
+      ]
+    },
+    "sqlite3",
+    "libsodium",
+    "cmark-gfm",
+    "spdlog",
+    "gtest"
+  ]
+}

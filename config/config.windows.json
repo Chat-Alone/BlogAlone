@@ -1,0 +1,41 @@
+{
+  "listeners": [
+    {
+      "address": "127.0.0.1",
+      "port": 8080,
+      "https": false
+    }
+  ],
+  "app": {
+    "threads_num": 1,
+    "run_as_daemon": false
+  },
+  "db_clients": [
+    {
+      "name": "default",
+      "rdbms": "sqlite3",
+      "filename": "blogalone.dev.db",
+      "is_fast": false,
+      "number_of_connections": 1
+    }
+  ],
+  "plugins": [
+    {
+      "name": "blogalone::plugins::DatabaseMigrationPlugin",
+      "dependencies": [],
+      "config": {
+        "database_path": "blogalone.dev.db",
+        "migrations_dir": "migrations",
+        "db_client": "default"
+      }
+    }
+  ],
+  "custom_config": {
+    "trusted_proxies": [
+      "127.0.0.1"
+    ],
+    "web_root": "web",
+    "uploads_root": "uploads",
+    "session_ttl_seconds": 1209600
+  }
+}

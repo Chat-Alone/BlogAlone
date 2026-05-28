@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>BlogAlone</title>
+  <link rel="stylesheet" href="/static/css/retro.css">
+  <script src="/static/js/api.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="site-header">
+    <nav class="site-nav" aria-label="Primary">
+      <a class="brand" href="/">BlogAlone</a>
+      <div class="nav-links">
+        <a href="/">Forums</a>
+      </div>
+    </nav>
+  </header>
+  <main id="main" class="page-shell">
+    <section class="hero" aria-labelledby="page-title">
+      <div>
+        <p class="eyebrow">Small forum</p>
+        <h1 id="page-title">BlogAlone</h1>
+      </div>
+      <a class="primary-action" href="/api/healthz">API status</a>
+    </section>
+    <section class="content-panel" aria-labelledby="forums-title">
+      <div class="section-heading">
+        <h2 id="forums-title">Forums</h2>
+        <span class="status-pill">MVP</span>
+      </div>
+      <div class="empty-state">
+        <p>No forums yet.</p>
+      </div>
+    </section>
+  </main>
+  <footer class="site-footer">
+    <p>BlogAlone MVP</p>
+  </footer>
+</body>
+</html>

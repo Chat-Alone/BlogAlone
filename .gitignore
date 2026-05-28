@@ -1,0 +1,9 @@
+build/
+build-*/
+out/
+.vcpkg-cache/
+vcpkg_installed/
+*.db
+*.db-shm
+*.db-wal
+*.log
