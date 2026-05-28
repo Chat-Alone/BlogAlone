@@ -8,6 +8,8 @@
 namespace blogalone::util {
 namespace {
 
+constexpr std::size_t kMaxPasswordLength = 128;
+
 void ensure_sodium_initialized()
 {
     if(sodium_init() < 0) {
@@ -34,7 +36,7 @@ std::string hash_password(std::string_view password, const PasswordHashOptions& 
 {
     ensure_sodium_initialized();
 
-    if(password.empty() || password.size() > 128) {
+    if(password.empty() || password.size() > kMaxPasswordLength) {
         throw std::invalid_argument{"password length out of range"};
     }
     if(options.opslimit == 0 || options.memlimit == 0) {

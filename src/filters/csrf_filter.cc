@@ -47,11 +47,10 @@ namespace {
 
 [[nodiscard]] std::string to_lower_ascii(std::string_view value)
 {
-    std::string output;
-    output.reserve(value.size());
-    for(const auto ch : value) {
-        output.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(ch))));
-    }
+    std::string output(value.size(), '\0');
+    std::ranges::transform(value, output.begin(), [](char ch) {
+        return static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+    });
     return output;
 }
 

@@ -10,6 +10,14 @@
 namespace blogalone::services {
 namespace {
 
+constexpr std::size_t kMinUsernameLength = 3;
+constexpr std::size_t kMaxUsernameLength = 32;
+constexpr std::size_t kMaxEmailLength = 254;
+constexpr std::size_t kMinPasswordLength = 8;
+constexpr std::size_t kMaxPasswordLength = 128;
+constexpr std::size_t kTokenByteCount = 32;
+constexpr std::size_t kMaxAvatarUrlLength = 512;
+
 [[nodiscard]] std::string trim(std::string_view value)
 {
     const auto first = value.find_first_not_of(" \t\r\n");
@@ -22,11 +30,10 @@ namespace {
 
 [[nodiscard]] std::string to_lower_ascii(std::string_view value)
 {
-    std::string output;
-    output.reserve(value.size());
-    for(const auto ch : value) {
-        output.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(ch))));
-    }
+    std::string output(value.size(), '\0');
+    std::ranges::transform(value, output.begin(), [](char ch) {
+        return static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+    });
     return output;
 }
 
@@ -106,16 +113,16 @@ namespace {
             return false;
         }
         ++length;
-        if(length > 32) {
+        if(length > kMaxUsernameLength) {
             return false;
         }
     }
-    return length >= 3;
+    return length >= kMinUsernameLength;
 }
 
 [[nodiscard]] bool is_valid_email(std::string_view email)
 {
-    if(email.empty() || email.size() > 254) {
+    if(email.empty() || email.size() > kMaxEmailLength) {
         return false;
     }
     const auto at = email.find('@');
@@ -127,7 +134,7 @@ namespace {
 
 [[nodiscard]] bool is_valid_password(std::string_view password)
 {
-    return password.size() >= 8 && password.size() <= 128;
+    return password.size() >= kMinPasswordLength && password.size() <= kMaxPasswordLength;
 }
 
 [[nodiscard]] bool is_user_banned(const models::User& user, std::int64_t now)
@@ -206,8 +213,8 @@ AuthResult<AuthIssued> AuthService::register_user(
         return AuthError::not_found;
     }
 
-    const auto session_token = util::random_token_hex(32);
-    const auto csrf_token = util::random_token_hex(32);
+    const auto session_token = util::random_token_hex(kTokenByteCount);
+    const auto csrf_token = util::random_token_hex(kTokenByteCount);
     const auto expires_at = now + session_ttl_seconds_;
 
     session_repository_.create(models::Session{
@@ -253,8 +260,8 @@ AuthResult<AuthIssued> AuthService::login(
         return AuthError::user_banned;
     }
 
-    const auto session_token = util::random_token_hex(32);
-    const auto csrf_token = util::random_token_hex(32);
+    const auto session_token = util::random_token_hex(kTokenByteCount);
+    const auto csrf_token = util::random_token_hex(kTokenByteCount);
     const auto expires_at = now + session_ttl_seconds_;
 
     session_repository_.create(models::Session{
@@ -312,7 +319,7 @@ AuthResult<models::User> AuthService::update_profile(
     std::optional<std::string> avatar_url;
     if(request.avatar_url.has_value()) {
         const auto trimmed = trim(*request.avatar_url);
-        if(trimmed.empty() || trimmed.size() > 512) {
+        if(trimmed.empty() || trimmed.size() > kMaxAvatarUrlLength) {
             return AuthError::invalid_input;
         }
         avatar_url = trimmed;
