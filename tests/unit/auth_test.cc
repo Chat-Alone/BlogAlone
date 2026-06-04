@@ -10,8 +10,10 @@
 #include <drogon/DrClassMap.h>
 #include <drogon/drogon.h>
 #include <gtest/gtest.h>
+#include <sodium.h>
 
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <memory>
@@ -77,6 +79,32 @@ class TempWorkspace {
         return client;
     }();
     return initialized;
+}
+
+[[nodiscard]] blogalone::util::PasswordHashOptions fast_password_hash_options()
+{
+    return blogalone::util::PasswordHashOptions{
+        .opslimit = crypto_pwhash_OPSLIMIT_MIN,
+        .memlimit = static_cast<std::size_t>(crypto_pwhash_MEMLIMIT_MIN)
+    };
+}
+
+[[nodiscard]] blogalone::services::AuthService auth_test_service()
+{
+    const auto client = auth_test_client();
+    return blogalone::services::AuthService{
+        blogalone::repositories::UserRepository{client},
+        blogalone::repositories::SessionRepository{client},
+        3'600,
+        fast_password_hash_options()
+    };
+}
+
+[[nodiscard]] std::string unique_username(std::string_view prefix)
+{
+    static int counter = 0;
+    ++counter;
+    return std::string{prefix} + std::to_string(counter);
 }
 
 [[nodiscard]] std::int64_t insert_filter_test_user(
@@ -308,6 +336,109 @@ TEST(AuthValidationTest, RejectsNonChineseUnicodeUsernames)
     EXPECT_EQ(invalid_utf8.error(), blogalone::services::AuthError::invalid_input);
 }
 
+TEST(AuthServiceTest, RegistersAndRejectsDuplicateUsername)
+{
+    const auto service = auth_test_service();
+    const auto username = unique_username("dupuser");
+
+    const auto first = service.register_user(
+        blogalone::services::RegisterRequest{
+            .username = username,
+            .email = username + "@example.test",
+            .password = "valid-password"
+        },
+        "127.0.0.1",
+        "test",
+        10
+    );
+    const auto duplicate = service.register_user(
+        blogalone::services::RegisterRequest{
+            .username = username,
+            .email = unique_username("mail") + "@example.test",
+            .password = "valid-password"
+        },
+        "127.0.0.1",
+        "test",
+        11
+    );
+
+    ASSERT_TRUE(first.has_value());
+    ASSERT_FALSE(duplicate.has_value());
+    EXPECT_EQ(duplicate.error(), blogalone::services::AuthError::username_taken);
+}
+
+TEST(AuthServiceTest, RegistersAndRejectsDuplicateEmail)
+{
+    const auto service = auth_test_service();
+    const auto email = unique_username("email") + "@example.test";
+
+    const auto first = service.register_user(
+        blogalone::services::RegisterRequest{
+            .username = unique_username("mailuser"),
+            .email = email,
+            .password = "valid-password"
+        },
+        "127.0.0.1",
+        "test",
+        20
+    );
+    const auto duplicate = service.register_user(
+        blogalone::services::RegisterRequest{
+            .username = unique_username("mailuser"),
+            .email = email,
+            .password = "valid-password"
+        },
+        "127.0.0.1",
+        "test",
+        21
+    );
+
+    ASSERT_TRUE(first.has_value());
+    ASSERT_FALSE(duplicate.has_value());
+    EXPECT_EQ(duplicate.error(), blogalone::services::AuthError::email_taken);
+}
+
+TEST(AuthServiceTest, RejectsMissingAndWrongPasswordWithSameError)
+{
+    const auto service = auth_test_service();
+    const auto username = unique_username("loginuser");
+    const auto registered = service.register_user(
+        blogalone::services::RegisterRequest{
+            .username = username,
+            .email = std::nullopt,
+            .password = "valid-password"
+        },
+        "127.0.0.1",
+        "test",
+        30
+    );
+
+    ASSERT_TRUE(registered.has_value());
+    const auto wrong_password = service.login(
+        blogalone::services::LoginRequest{
+            .username = username,
+            .password = "wrong-password"
+        },
+        "127.0.0.1",
+        "test",
+        31
+    );
+    const auto missing_user = service.login(
+        blogalone::services::LoginRequest{
+            .username = unique_username("missing"),
+            .password = "wrong-password"
+        },
+        "127.0.0.1",
+        "test",
+        31
+    );
+
+    ASSERT_FALSE(wrong_password.has_value());
+    ASSERT_FALSE(missing_user.has_value());
+    EXPECT_EQ(wrong_password.error(), blogalone::services::AuthError::invalid_credentials);
+    EXPECT_EQ(missing_user.error(), blogalone::services::AuthError::invalid_credentials);
+}
+
 TEST(FilterRegistrationTest, RegistersAuthFiltersForDrogonLookup)
 {
     blogalone::filters::ensure_session_filters_registered();
@@ -461,4 +592,35 @@ TEST(SessionFilterTest, RejectsBannedUser)
     EXPECT_FALSE(result.chained);
     EXPECT_EQ(result.status, drogon::k403Forbidden);
     EXPECT_FALSE(blogalone::http::session_context_of(request).has_value());
+}
+
+TEST(SessionFilterTest, ConvertsDatabaseExceptionsToInternalError)
+{
+    TempWorkspace workspace;
+    const auto client = drogon::orm::DbClient::newSqlite3Client(
+        "filename=" + (workspace.path() / "missing-schema.db").generic_string(),
+        1
+    );
+    blogalone::filters::SessionFilter filter{
+        blogalone::repositories::UserRepository{client},
+        blogalone::repositories::SessionRepository{client}
+    };
+    auto request = drogon::HttpRequest::newHttpRequest();
+    request->addCookie(std::string{blogalone::http::session_cookie_name}, "broken-session-token");
+
+    FilterResult result;
+    filter.doFilter(
+        request,
+        [&result](const drogon::HttpResponsePtr& response) {
+            result.failed = true;
+            result.status = response->statusCode();
+        },
+        [&result]() {
+            result.chained = true;
+        }
+    );
+
+    EXPECT_TRUE(result.failed);
+    EXPECT_FALSE(result.chained);
+    EXPECT_EQ(result.status, drogon::k500InternalServerError);
 }

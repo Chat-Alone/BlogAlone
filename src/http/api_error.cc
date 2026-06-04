@@ -1,5 +1,7 @@
 #include "http/api_error.h"
 
+#include "http/request_context.h"
+
 #include <json/value.h>
 
 #include <utility>
@@ -60,6 +62,14 @@ ApiError make_api_error(ErrorCode code, std::string message)
         .message = std::move(message),
         .status = default_status(code)
     };
+}
+
+drogon::HttpResponsePtr make_internal_error_response(const drogon::HttpRequestPtr& request)
+{
+    return make_error_response(
+        make_api_error(ErrorCode::internal_error, "internal error"),
+        request_id_from(request)
+    );
 }
 
 drogon::HttpResponsePtr make_error_response(const ApiError& error, std::string_view request_id)

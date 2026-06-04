@@ -2,8 +2,12 @@
 
 #include "util/crypto.h"
 
+#include <drogon/orm/Exception.h>
+
 #include <algorithm>
 #include <cctype>
+#include <map>
+#include <mutex>
 #include <optional>
 #include <utility>
 
@@ -17,6 +21,9 @@ constexpr std::size_t kMinPasswordLength = 8;
 constexpr std::size_t kMaxPasswordLength = 128;
 constexpr std::size_t kTokenByteCount = 32;
 constexpr std::size_t kMaxAvatarUrlLength = 512;
+constexpr std::string_view kFakeLoginPassword = "blogalone fixed fake login password";
+
+using PasswordHashKey = std::pair<unsigned long long, std::size_t>;
 
 [[nodiscard]] std::string trim(std::string_view value)
 {
@@ -142,6 +149,46 @@ constexpr std::size_t kMaxAvatarUrlLength = 512;
     return user.banned_until.has_value() && *user.banned_until > now;
 }
 
+[[nodiscard]] const std::string& fake_password_hash(const util::PasswordHashOptions& options)
+{
+    static std::mutex mutex;
+    static std::map<PasswordHashKey, std::string> hashes;
+
+    const auto key = PasswordHashKey{options.opslimit, options.memlimit};
+    {
+        const std::scoped_lock lock{mutex};
+        const auto found = hashes.find(key);
+        if(found != hashes.end()) {
+            return found->second;
+        }
+    }
+
+    auto hash = util::hash_password(kFakeLoginPassword, options);
+    const std::scoped_lock lock{mutex};
+    const auto entry = hashes.try_emplace(key, std::move(hash)).first;
+    return entry->second;
+}
+
+[[nodiscard]] bool is_unique_violation(const drogon::orm::DrogonDbException& error)
+{
+    return dynamic_cast<const drogon::orm::UniqueViolation*>(&error.base()) != nullptr;
+}
+
+[[nodiscard]] std::optional<AuthError> registration_conflict_error(
+    const repositories::UserRepository& repository,
+    std::string_view username,
+    const std::optional<std::string>& email
+)
+{
+    if(repository.find_by_username(username).has_value()) {
+        return AuthError::username_taken;
+    }
+    if(email.has_value() && repository.find_by_email(*email).has_value()) {
+        return AuthError::email_taken;
+    }
+    return std::nullopt;
+}
+
 }
 
 std::string_view to_string(AuthError error)
@@ -198,15 +245,22 @@ AuthResult<AuthIssued> AuthService::register_user(
         normalized_email = email;
     }
 
-    if(user_repository_.find_by_username(username).has_value()) {
-        return AuthError::username_taken;
-    }
-    if(normalized_email.has_value() && user_repository_.find_by_email(*normalized_email).has_value()) {
-        return AuthError::email_taken;
-    }
-
     const auto pwd_hash = util::hash_password(password, password_hash_options_);
-    const auto user_id = user_repository_.create(username, normalized_email, pwd_hash, now);
+    std::int64_t user_id = 0;
+    try {
+        user_id = user_repository_.create(username, normalized_email, pwd_hash, now);
+    } catch(const drogon::orm::DrogonDbException& error) {
+        if(is_unique_violation(error)) {
+            if(const auto conflict = registration_conflict_error(
+                user_repository_,
+                username,
+                normalized_email
+            )) {
+                return *conflict;
+            }
+        }
+        throw;
+    }
 
     const auto user = user_repository_.find_by_id(user_id);
     if(!user.has_value()) {
@@ -251,6 +305,10 @@ AuthResult<AuthIssued> AuthService::login(
 
     const auto user = user_repository_.find_by_username(username);
     if(!user.has_value()) {
+        static_cast<void>(util::verify_password(
+            request.password,
+            fake_password_hash(password_hash_options_)
+        ));
         return AuthError::invalid_credentials;
     }
     if(!util::verify_password(request.password, user->pwd_hash)) {
@@ -333,7 +391,14 @@ AuthResult<models::User> AuthService::update_profile(
         return *current;
     }
 
-    user_repository_.update_profile(user_id, email, avatar_url, now);
+    try {
+        user_repository_.update_profile(user_id, email, avatar_url, now);
+    } catch(const drogon::orm::DrogonDbException& error) {
+        if(email.has_value() && is_unique_violation(error)) {
+            return AuthError::email_taken;
+        }
+        throw;
+    }
     const auto updated = user_repository_.find_by_id(user_id);
     if(!updated.has_value()) {
         return AuthError::not_found;

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <drogon/HttpRequest.h>
 #include <drogon/HttpResponse.h>
 
 #include <string>
@@ -27,6 +28,9 @@ struct ApiError {
 [[nodiscard]] std::string_view to_string(ErrorCode code);
 [[nodiscard]] drogon::HttpStatusCode default_status(ErrorCode code);
 [[nodiscard]] ApiError make_api_error(ErrorCode code, std::string message);
+[[nodiscard]] drogon::HttpResponsePtr make_internal_error_response(
+    const drogon::HttpRequestPtr& request
+);
 [[nodiscard]] drogon::HttpResponsePtr make_error_response(
     const ApiError& error,
     std::string_view request_id

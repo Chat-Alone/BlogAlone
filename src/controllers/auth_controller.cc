@@ -4,6 +4,7 @@
 #include "filters/csrf_filter.h"
 #include "filters/session_filter.h"
 #include "http/api_error.h"
+#include "http/handler_guard.h"
 #include "http/request_context.h"
 #include "http/session_context.h"
 #include "models/user.h"
@@ -147,7 +148,7 @@ void clear_session_cookies(const drogon::HttpResponsePtr& response)
 
 void handle_register(
     const drogon::HttpRequestPtr& request,
-    HttpCallback&& callback
+    const HttpCallback& callback
 )
 {
     const auto body = parse_json_body(request);
@@ -190,7 +191,7 @@ void handle_register(
 
 void handle_login(
     const drogon::HttpRequestPtr& request,
-    HttpCallback&& callback
+    const HttpCallback& callback
 )
 {
     const auto body = parse_json_body(request);
@@ -235,7 +236,7 @@ void handle_login(
 
 void handle_logout(
     const drogon::HttpRequestPtr& request,
-    HttpCallback&& callback
+    const HttpCallback& callback
 )
 {
     const auto token = request->getCookie(std::string{http::session_cookie_name});
@@ -249,7 +250,7 @@ void handle_logout(
 
 void handle_get_me(
     const drogon::HttpRequestPtr& request,
-    HttpCallback&& callback
+    const HttpCallback& callback
 )
 {
     const auto session = http::session_context_of(request);
@@ -275,7 +276,7 @@ void handle_get_me(
 
 void handle_patch_me(
     const drogon::HttpRequestPtr& request,
-    HttpCallback&& callback
+    const HttpCallback& callback
 )
 {
     const auto session = http::session_context_of(request);
@@ -328,7 +329,9 @@ void register_auth_routes()
     drogon::app().registerHandler(
         "/api/auth/register",
         [](const drogon::HttpRequestPtr& request, HttpCallback&& callback) {
-            handle_register(request, std::move(callback));
+            http::run_guarded_request(request, callback, "auth.register", [&]() {
+                handle_register(request, callback);
+            });
         },
         {drogon::Post}
     );
@@ -336,7 +339,9 @@ void register_auth_routes()
     drogon::app().registerHandler(
         "/api/auth/login",
         [](const drogon::HttpRequestPtr& request, HttpCallback&& callback) {
-            handle_login(request, std::move(callback));
+            http::run_guarded_request(request, callback, "auth.login", [&]() {
+                handle_login(request, callback);
+            });
         },
         {drogon::Post}
     );
@@ -344,7 +349,9 @@ void register_auth_routes()
     drogon::app().registerHandler(
         "/api/auth/logout",
         [](const drogon::HttpRequestPtr& request, HttpCallback&& callback) {
-            handle_logout(request, std::move(callback));
+            http::run_guarded_request(request, callback, "auth.logout", [&]() {
+                handle_logout(request, callback);
+            });
         },
         {drogon::Post,
          std::string{"blogalone::filters::SessionFilter"},
@@ -355,7 +362,9 @@ void register_auth_routes()
     drogon::app().registerHandler(
         "/api/me",
         [](const drogon::HttpRequestPtr& request, HttpCallback&& callback) {
-            handle_get_me(request, std::move(callback));
+            http::run_guarded_request(request, callback, "auth.me", [&]() {
+                handle_get_me(request, callback);
+            });
         },
         {drogon::Get,
          std::string{"blogalone::filters::SessionFilter"},
@@ -365,7 +374,9 @@ void register_auth_routes()
     drogon::app().registerHandler(
         "/api/me",
         [](const drogon::HttpRequestPtr& request, HttpCallback&& callback) {
-            handle_patch_me(request, std::move(callback));
+            http::run_guarded_request(request, callback, "auth.patch_me", [&]() {
+                handle_patch_me(request, callback);
+            });
         },
         {drogon::Patch,
          std::string{"blogalone::filters::SessionFilter"},

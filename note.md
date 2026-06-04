@@ -74,7 +74,7 @@ PRAGMA synchronous = NORMAL;
 PRAGMA busy_timeout = 5000;
 ```
 
-SQLite保持单写者模型。Drogon连接池不追求大量写连接，初始配置为读连接4个、写连接1个。所有写操作由服务层显式开启事务，事务内只做数据库读写，不执行Markdown渲染、图片解码、文件复制等耗时操作。
+SQLite保持单写者模型。当前Drogon SQLite客户端只配置1个连接。Drogon1.9.12没有公开的SQLite连接初始化钩子，`foreign_keys`、`synchronous`和`busy_timeout`都按连接生效；在找到可靠的连接初始化机制前，不能提高`number_of_connections`。读并发优化放到阶段5后续改造，优先改用协程接口或自管SQLite连接初始化。所有写操作由服务层显式开启事务，事务内只做数据库读写，不执行Markdown渲染、图片解码、文件复制等耗时操作。
 
 所有时间字段使用UTC Unix秒。服务端负责生成时间，客户端传来的时间只用于展示偏好，不能参与权限和排序判断。
 

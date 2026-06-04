@@ -27,6 +27,11 @@ void configure_drogon_sqlite_client(const std::string& db_client_name)
     client->execSqlSync("PRAGMA journal_mode = WAL;");
     client->execSqlSync("PRAGMA synchronous = NORMAL;");
     client->execSqlSync("PRAGMA busy_timeout = 5000;");
+
+    const auto rows = client->execSqlSync("PRAGMA foreign_keys;");
+    if(rows.empty() || rows.at(0)["foreign_keys"].as<int>() != 1) {
+        throw std::runtime_error{"SQLite foreign key enforcement is not enabled"};
+    }
 }
 
 }

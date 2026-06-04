@@ -6,11 +6,13 @@
 #include "util/time.h"
 
 #include <gtest/gtest.h>
+#include <json/reader.h>
 #include <json/value.h>
 
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -64,6 +66,34 @@ void write_file(const std::filesystem::path& path, std::string_view content)
     file << content;
 }
 
+[[nodiscard]] std::string read_text_file(const std::filesystem::path& path)
+{
+    std::ifstream file{path, std::ios::binary};
+    if(!file) {
+        throw std::runtime_error{"unable to read test file"};
+    }
+    return {
+        std::istreambuf_iterator<char>{file},
+        std::istreambuf_iterator<char>{}
+    };
+}
+
+[[nodiscard]] Json::Value read_json_file(const std::filesystem::path& path)
+{
+    std::ifstream file{path, std::ios::binary};
+    if(!file) {
+        throw std::runtime_error{"unable to read json file"};
+    }
+
+    Json::Value root;
+    Json::CharReaderBuilder builder;
+    std::string errors;
+    if(!Json::parseFromStream(builder, file, &root, &errors)) {
+        throw std::runtime_error{"unable to parse json file: " + errors};
+    }
+    return root;
+}
+
 }
 
 TEST(InfrastructureTest, ParsesApplicationCustomConfig)
@@ -97,6 +127,36 @@ TEST(InfrastructureTest, RejectsInvalidCustomConfig)
         static_cast<void>(blogalone::config::app_config_from_json(custom_config)),
         std::invalid_argument
     );
+}
+
+TEST(InfrastructureTest, KeepsDrogonSqliteClientSingleConnection)
+{
+    const auto config_dir = std::filesystem::path{BLOGALONE_SOURCE_DIR} / "config";
+    for(const auto filename : {"config.windows.json", "config.linux.json"}) {
+        const auto config = read_json_file(config_dir / filename);
+        const auto& clients = config["db_clients"];
+        ASSERT_TRUE(clients.isArray());
+
+        bool checked_sqlite_client = false;
+        for(const auto& client : clients) {
+            if(client["rdbms"].asString() != "sqlite3") {
+                continue;
+            }
+            checked_sqlite_client = true;
+            ASSERT_TRUE(client["number_of_connections"].isInt());
+            EXPECT_EQ(client["number_of_connections"].asInt(), 1) << filename;
+        }
+        EXPECT_TRUE(checked_sqlite_client) << filename;
+    }
+}
+
+TEST(InfrastructureTest, LocksSqlMigrationLineEndings)
+{
+    const auto attributes = read_text_file(
+        std::filesystem::path{BLOGALONE_SOURCE_DIR} / ".gitattributes"
+    );
+
+    EXPECT_NE(attributes.find("*.sql text eol=lf"), std::string::npos);
 }
 
 TEST(InfrastructureTest, MapsApiErrorsToWireCodes)

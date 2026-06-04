@@ -7,7 +7,7 @@
     }
   ],
   "app": {
-    "threads_num": 2,
+    "threads_num": 4,
     "run_as_daemon": false
   },
   "db_clients": [
