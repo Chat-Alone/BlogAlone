@@ -185,10 +185,20 @@ TEST(InfrastructureTest, GeneratesHexTokensAndHashes)
 
     EXPECT_EQ(token.size(), 32);
     EXPECT_TRUE(blogalone::util::is_lower_hex(token));
+    EXPECT_FALSE(blogalone::util::is_lower_hex(""));
+    EXPECT_FALSE(blogalone::util::is_lower_hex("ABCDEF"));
+    EXPECT_FALSE(blogalone::util::is_lower_hex("abcxyz"));
     EXPECT_EQ(
         blogalone::util::sha256_hex("abc"),
         "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
     );
+}
+
+TEST(InfrastructureTest, ComparesSensitiveStringsByValue)
+{
+    EXPECT_TRUE(blogalone::util::constant_time_equal("csrf-hash", "csrf-hash"));
+    EXPECT_FALSE(blogalone::util::constant_time_equal("csrf-hash", "csrf-Hash"));
+    EXPECT_FALSE(blogalone::util::constant_time_equal("csrf-hash", "csrf-hash-extra"));
 }
 
 TEST(InfrastructureTest, ReturnsCurrentUtcSeconds)

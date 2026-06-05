@@ -1,6 +1,7 @@
 build/
 build-*/
 out/
+.vs/
 .vcpkg-cache/
 vcpkg_installed/
 *.db

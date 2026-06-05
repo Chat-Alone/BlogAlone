@@ -61,26 +61,6 @@ class TempWorkspace {
     std::filesystem::path path_;
 };
 
-[[nodiscard]] drogon::orm::DbClientPtr auth_test_client()
-{
-    static const auto workspace = std::make_unique<TempWorkspace>();
-    static const auto initialized = []() {
-        const auto database_path = workspace->path() / "blogalone.db";
-        static_cast<void>(blogalone::db::run_migrations({
-            .database_path = database_path,
-            .migrations_dir = std::filesystem::path{BLOGALONE_SOURCE_DIR} / "migrations"
-        }));
-        const auto client = drogon::orm::DbClient::newSqlite3Client(
-            "filename=" + database_path.generic_string(),
-            1
-        );
-        client->execSqlSync("PRAGMA foreign_keys = ON;");
-        client->execSqlSync("PRAGMA busy_timeout = 5000;");
-        return client;
-    }();
-    return initialized;
-}
-
 [[nodiscard]] blogalone::util::PasswordHashOptions fast_password_hash_options()
 {
     return blogalone::util::PasswordHashOptions{
@@ -89,15 +69,45 @@ class TempWorkspace {
     };
 }
 
-[[nodiscard]] blogalone::services::AuthService auth_test_service()
+[[nodiscard]] drogon::orm::DbClientPtr fresh_auth_test_client(
+    const std::filesystem::path& database_path
+)
 {
-    const auto client = auth_test_client();
+    static_cast<void>(blogalone::db::run_migrations({
+        .database_path = database_path,
+        .migrations_dir = std::filesystem::path{BLOGALONE_SOURCE_DIR} / "migrations"
+    }));
+    const auto client = drogon::orm::DbClient::newSqlite3Client(
+        "filename=" + database_path.generic_string(),
+        1
+    );
+    client->execSqlSync("PRAGMA foreign_keys = ON;");
+    client->execSqlSync("PRAGMA busy_timeout = 5000;");
+    return client;
+}
+
+[[nodiscard]] drogon::orm::DbClientPtr auth_test_client()
+{
+    static const auto workspace = std::make_unique<TempWorkspace>();
+    static const auto initialized = fresh_auth_test_client(workspace->path() / "blogalone.db");
+    return initialized;
+}
+
+[[nodiscard]] blogalone::services::AuthService auth_test_service(
+    const drogon::orm::DbClientPtr& client
+)
+{
     return blogalone::services::AuthService{
         blogalone::repositories::UserRepository{client},
         blogalone::repositories::SessionRepository{client},
         3'600,
         fast_password_hash_options()
     };
+}
+
+[[nodiscard]] blogalone::services::AuthService auth_test_service()
+{
+    return auth_test_service(auth_test_client());
 }
 
 [[nodiscard]] std::string unique_username(std::string_view prefix)
@@ -235,20 +245,15 @@ struct FilterResult {
     return result;
 }
 
-[[nodiscard]] FilterResult run_csrf_filter(const drogon::HttpRequestPtr& request)
+[[nodiscard]] FilterResult run_csrf_guard(const drogon::HttpRequestPtr& request)
 {
     FilterResult result;
-    blogalone::filters::CsrfFilter filter;
-    filter.doFilter(
-        request,
-        [&result](const drogon::HttpResponsePtr& response) {
-            result.failed = true;
-            result.status = response->statusCode();
-        },
-        [&result]() {
-            result.chained = true;
-        }
-    );
+    if(const auto rejection = blogalone::filters::check_write_csrf(request)) {
+        result.failed = true;
+        result.status = (*rejection)->statusCode();
+        return result;
+    }
+    result.chained = true;
     return result;
 }
 
@@ -398,6 +403,38 @@ TEST(AuthServiceTest, RegistersAndRejectsDuplicateEmail)
     EXPECT_EQ(duplicate.error(), blogalone::services::AuthError::email_taken);
 }
 
+TEST(AuthServiceTest, RollsBackCreatedUserWhenSessionCreateFails)
+{
+    TempWorkspace workspace;
+    const auto client = fresh_auth_test_client(workspace.path() / "rollback.db");
+    client->execSqlSync(
+        "CREATE TRIGGER fail_session_insert BEFORE INSERT ON sessions "
+        "BEGIN SELECT RAISE(FAIL, 'session insert failed'); END;"
+    );
+    const auto service = auth_test_service(client);
+    const auto username = unique_username("rollbackuser");
+
+    EXPECT_THROW(
+        static_cast<void>(service.register_user(
+            blogalone::services::RegisterRequest{
+                .username = username,
+                .email = std::nullopt,
+                .password = "valid-password"
+            },
+            "127.0.0.1",
+            "test",
+            25
+        )),
+        drogon::orm::DrogonDbException
+    );
+
+    const auto rows = client->execSqlSync(
+        "SELECT COUNT(*) AS count FROM users WHERE username = ?",
+        username
+    );
+    EXPECT_EQ(rows.at(0)["count"].as<int>(), 0);
+}
+
 TEST(AuthServiceTest, RejectsMissingAndWrongPasswordWithSameError)
 {
     const auto service = auth_test_service();
@@ -442,7 +479,6 @@ TEST(AuthServiceTest, RejectsMissingAndWrongPasswordWithSameError)
 TEST(FilterRegistrationTest, RegistersAuthFiltersForDrogonLookup)
 {
     blogalone::filters::ensure_session_filters_registered();
-    blogalone::filters::ensure_csrf_filter_registered();
 
     const auto session_filter = std::unique_ptr<drogon::DrObjectBase>{
         drogon::DrClassMap::newObject("blogalone::filters::SessionFilter")
@@ -450,54 +486,50 @@ TEST(FilterRegistrationTest, RegistersAuthFiltersForDrogonLookup)
     const auto require_auth_filter = std::unique_ptr<drogon::DrObjectBase>{
         drogon::DrClassMap::newObject("blogalone::filters::RequireAuthFilter")
     };
-    const auto csrf_filter = std::unique_ptr<drogon::DrObjectBase>{
-        drogon::DrClassMap::newObject("blogalone::filters::CsrfFilter")
-    };
 
     EXPECT_NE(session_filter.get(), nullptr);
     EXPECT_NE(require_auth_filter.get(), nullptr);
-    EXPECT_NE(csrf_filter.get(), nullptr);
 }
 
-TEST(CsrfFilterTest, AllowsSameOriginRequestWithValidToken)
+TEST(CsrfGuardTest, AllowsSameOriginRequestWithValidToken)
 {
     const std::string token{"csrf-token"};
     const auto request = csrf_request("https://forum.example.test", "", token);
     attach_session_context(request, token);
 
-    const auto result = run_csrf_filter(request);
+    const auto result = run_csrf_guard(request);
 
     EXPECT_FALSE(result.failed);
     EXPECT_TRUE(result.chained);
 }
 
-TEST(CsrfFilterTest, RejectsCrossSiteOrigin)
+TEST(CsrfGuardTest, RejectsCrossSiteOrigin)
 {
     const std::string token{"csrf-token"};
     const auto request = csrf_request("https://evil.example.test", "", token);
     attach_session_context(request, token);
 
-    const auto result = run_csrf_filter(request);
+    const auto result = run_csrf_guard(request);
 
     EXPECT_TRUE(result.failed);
     EXPECT_FALSE(result.chained);
     EXPECT_EQ(result.status, drogon::k403Forbidden);
 }
 
-TEST(CsrfFilterTest, RejectsCrossSiteRefererWhenOriginIsAbsent)
+TEST(CsrfGuardTest, RejectsCrossSiteRefererWhenOriginIsAbsent)
 {
     const std::string token{"csrf-token"};
     const auto request = csrf_request("", "https://evil.example.test/path", token);
     attach_session_context(request, token);
 
-    const auto result = run_csrf_filter(request);
+    const auto result = run_csrf_guard(request);
 
     EXPECT_TRUE(result.failed);
     EXPECT_FALSE(result.chained);
     EXPECT_EQ(result.status, drogon::k403Forbidden);
 }
 
-TEST(CsrfFilterTest, RejectsCrossSiteRefererWhenOriginIsPresent)
+TEST(CsrfGuardTest, RejectsCrossSiteRefererWhenOriginIsPresent)
 {
     const std::string token{"csrf-token"};
     const auto request = csrf_request(
@@ -507,14 +539,14 @@ TEST(CsrfFilterTest, RejectsCrossSiteRefererWhenOriginIsPresent)
     );
     attach_session_context(request, token);
 
-    const auto result = run_csrf_filter(request);
+    const auto result = run_csrf_guard(request);
 
     EXPECT_TRUE(result.failed);
     EXPECT_FALSE(result.chained);
     EXPECT_EQ(result.status, drogon::k403Forbidden);
 }
 
-TEST(CsrfFilterTest, RejectsMissingAndInvalidTokens)
+TEST(CsrfGuardTest, RejectsMissingAndInvalidTokens)
 {
     const std::string token{"csrf-token"};
     const auto missing = csrf_request("https://forum.example.test", "", "");
@@ -522,8 +554,8 @@ TEST(CsrfFilterTest, RejectsMissingAndInvalidTokens)
     attach_session_context(missing, token);
     attach_session_context(invalid, token);
 
-    const auto missing_result = run_csrf_filter(missing);
-    const auto invalid_result = run_csrf_filter(invalid);
+    const auto missing_result = run_csrf_guard(missing);
+    const auto invalid_result = run_csrf_guard(invalid);
 
     EXPECT_TRUE(missing_result.failed);
     EXPECT_FALSE(missing_result.chained);

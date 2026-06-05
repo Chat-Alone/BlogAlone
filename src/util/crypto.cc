@@ -63,6 +63,10 @@ std::string sha256_hex(std::string_view content)
 
 bool is_lower_hex(std::string_view value)
 {
+    if(value.empty()) {
+        return false;
+    }
+
     for(const auto ch : value) {
         const auto is_digit = ch >= '0' && ch <= '9';
         const auto is_lower_alpha = ch >= 'a' && ch <= 'f';
@@ -71,6 +75,18 @@ bool is_lower_hex(std::string_view value)
         }
     }
     return true;
+}
+
+bool constant_time_equal(std::string_view left, std::string_view right)
+{
+    ensure_sodium_initialized();
+    if(left.size() != right.size()) {
+        return false;
+    }
+    if(left.empty()) {
+        return true;
+    }
+    return sodium_memcmp(left.data(), right.data(), left.size()) == 0;
 }
 
 }

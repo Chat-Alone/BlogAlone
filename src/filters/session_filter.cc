@@ -57,7 +57,7 @@ void SessionFilter::doFilter(
 
         const auto token_hash = util::sha256_hex(session_token);
         const auto session = session_repository_.find_by_token_hash(token_hash);
-        if(!session.has_value()) {
+        if(!session.has_value() || !util::constant_time_equal(token_hash, session->token_hash)) {
             chain();
             return;
         }

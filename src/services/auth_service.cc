@@ -26,6 +26,45 @@ constexpr std::string_view kFakeLoginPassword = "blogalone fixed fake login pass
 
 using PasswordHashKey = std::pair<unsigned long long, std::size_t>;
 
+class SqlTransaction {
+  public:
+    explicit SqlTransaction(drogon::orm::DbClientPtr db)
+        : db_{std::move(db)}
+    {
+        db_->execSqlSync("BEGIN IMMEDIATE;");
+        active_ = true;
+    }
+
+    SqlTransaction(const SqlTransaction&) = delete;
+    SqlTransaction& operator=(const SqlTransaction&) = delete;
+
+    ~SqlTransaction()
+    {
+        if(active_) {
+            rollback();
+        }
+    }
+
+    void commit()
+    {
+        db_->execSqlSync("COMMIT;");
+        active_ = false;
+    }
+
+  private:
+    void rollback() noexcept
+    {
+        try {
+            db_->execSqlSync("ROLLBACK;");
+        } catch(...) {
+        }
+        active_ = false;
+    }
+
+    drogon::orm::DbClientPtr db_;
+    bool active_{};
+};
+
 [[nodiscard]] std::string trim(std::string_view value)
 {
     const auto first = value.find_first_not_of(" \t\r\n");
@@ -260,10 +299,36 @@ AuthResult<AuthIssued> AuthService::register_user(
         normalized_email = email;
     }
 
+    const auto session_token = util::random_token_hex(kTokenByteCount);
+    const auto csrf_token = util::random_token_hex(kTokenByteCount);
+    const auto expires_at = now + session_ttl_seconds_;
     const auto pwd_hash = util::hash_password(password, password_hash_options_);
-    std::int64_t user_id = 0;
+    models::User user;
     try {
-        user_id = user_repository_.create(username, normalized_email, pwd_hash, now);
+        const auto db = user_repository_.client();
+        const repositories::UserRepository user_repository{db};
+        const repositories::SessionRepository session_repository{db};
+        SqlTransaction transaction{db};
+
+        const auto user_id = user_repository.create(username, normalized_email, pwd_hash, now);
+        const auto created = user_repository.find_by_id(user_id);
+        if(!created.has_value()) {
+            return AuthError::not_found;
+        }
+        user = *created;
+
+        session_repository.create(models::Session{
+            .token_hash = util::sha256_hex(session_token),
+            .user_id = user.id,
+            .csrf_hash = util::sha256_hex(csrf_token),
+            .created_at = now,
+            .expires_at = expires_at,
+            .revoked_at = std::nullopt,
+            .admin_confirmed_at = std::nullopt,
+            .ip = std::string{ip},
+            .user_agent = std::string{user_agent}
+        });
+        transaction.commit();
     } catch(const drogon::orm::DrogonDbException& error) {
         if(is_unique_violation(error)) {
             if(const auto conflict = registration_conflict_error(
@@ -277,32 +342,11 @@ AuthResult<AuthIssued> AuthService::register_user(
         throw;
     }
 
-    const auto user = user_repository_.find_by_id(user_id);
-    if(!user.has_value()) {
-        return AuthError::not_found;
-    }
-
-    const auto session_token = util::random_token_hex(kTokenByteCount);
-    const auto csrf_token = util::random_token_hex(kTokenByteCount);
-    const auto expires_at = now + session_ttl_seconds_;
-
-    session_repository_.create(models::Session{
-        .token_hash = util::sha256_hex(session_token),
-        .user_id = user_id,
-        .csrf_hash = util::sha256_hex(csrf_token),
-        .created_at = now,
-        .expires_at = expires_at,
-        .revoked_at = std::nullopt,
-        .admin_confirmed_at = std::nullopt,
-        .ip = std::string{ip},
-        .user_agent = std::string{user_agent}
-    });
-
     return AuthIssued{
         .session_token = session_token,
         .csrf_token = csrf_token,
         .expires_at = expires_at,
-        .user = *user
+        .user = user
     };
 }
 

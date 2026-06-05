@@ -114,7 +114,14 @@ namespace {
     return true;
 }
 
-[[nodiscard]] std::optional<drogon::HttpResponsePtr> check_write_csrf(
+[[nodiscard]] bool is_csrf_exempt_path(std::string_view path)
+{
+    return path == "/api/auth/register" || path == "/api/auth/login";
+}
+
+}
+
+std::optional<drogon::HttpResponsePtr> check_write_csrf(
     const drogon::HttpRequestPtr& request
 )
 {
@@ -133,38 +140,16 @@ namespace {
     if(provided.empty()) {
         return forbidden(request, "missing csrf token");
     }
-    if(util::sha256_hex(provided) != session->csrf_hash) {
+    if(!util::constant_time_equal(util::sha256_hex(provided), session->csrf_hash)) {
         return forbidden(request, "invalid csrf token");
     }
     return std::nullopt;
 }
 
-[[nodiscard]] bool is_csrf_exempt_path(std::string_view path)
-{
-    return path == "/api/auth/register" || path == "/api/auth/login";
-}
-
-}
-
-void CsrfFilter::doFilter(
-    const drogon::HttpRequestPtr& request,
-    drogon::FilterCallback&& failure,
-    drogon::FilterChainCallback&& chain
-)
-{
-    if(!is_write_method(request->method())) {
-        chain();
-        return;
-    }
-    if(auto rejection = check_write_csrf(request)) {
-        failure(*rejection);
-        return;
-    }
-    chain();
-}
-
 void install_csrf_guard_advice()
 {
+    // Drogon pre-handling advice runs after route filters,
+    // so authenticated write routes must attach SessionFilter.
     drogon::app().registerPreHandlingAdvice(
         [](const drogon::HttpRequestPtr& request,
            drogon::AdviceCallback&& intercept,
@@ -180,11 +165,6 @@ void install_csrf_guard_advice()
             chain();
         }
     );
-}
-
-void ensure_csrf_filter_registered()
-{
-    static_cast<void>(CsrfFilter::classTypeName());
 }
 
 }

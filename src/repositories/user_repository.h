@@ -16,6 +16,7 @@ class UserRepository {
     explicit UserRepository(std::string db_client_name = "default");
     explicit UserRepository(drogon::orm::DbClientPtr db_client);
 
+    [[nodiscard]] drogon::orm::DbClientPtr client() const;
     [[nodiscard]] std::optional<models::User> find_by_id(std::int64_t user_id) const;
     [[nodiscard]] std::optional<models::User> find_by_username(std::string_view username) const;
     [[nodiscard]] std::optional<models::User> find_by_email(std::string_view email) const;
@@ -32,10 +33,7 @@ class UserRepository {
         std::int64_t updated_at
     ) const;
     void update_password(std::int64_t user_id, std::string_view pwd_hash, std::int64_t updated_at) const;
-
   private:
-    [[nodiscard]] drogon::orm::DbClientPtr client() const;
-
     std::string db_client_name_;
     drogon::orm::DbClientPtr db_client_;
 };

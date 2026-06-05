@@ -1,7 +1,6 @@
 #include "controllers/auth_controller.h"
 
 #include "config/app_config.h"
-#include "filters/csrf_filter.h"
 #include "filters/session_filter.h"
 #include "http/api_error.h"
 #include "http/handler_guard.h"
@@ -324,7 +323,6 @@ void handle_patch_me(
 void register_auth_routes()
 {
     filters::ensure_session_filters_registered();
-    filters::ensure_csrf_filter_registered();
 
     drogon::app().registerHandler(
         "/api/auth/register",
