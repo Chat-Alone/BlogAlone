@@ -21,6 +21,7 @@ constexpr std::size_t kMinPasswordLength = 8;
 constexpr std::size_t kMaxPasswordLength = 128;
 constexpr std::size_t kTokenByteCount = 32;
 constexpr std::size_t kMaxAvatarUrlLength = 512;
+constexpr std::string_view kAvatarUrlPrefix = "/uploads/";
 constexpr std::string_view kFakeLoginPassword = "blogalone fixed fake login password";
 
 using PasswordHashKey = std::pair<unsigned long long, std::size_t>;
@@ -142,6 +143,20 @@ using PasswordHashKey = std::pair<unsigned long long, std::size_t>;
 [[nodiscard]] bool is_valid_password(std::string_view password)
 {
     return password.size() >= kMinPasswordLength && password.size() <= kMaxPasswordLength;
+}
+
+[[nodiscard]] bool is_valid_avatar_url(std::string_view url)
+{
+    if(!url.starts_with(kAvatarUrlPrefix) || url.size() > kMaxAvatarUrlLength) {
+        return false;
+    }
+    if(url.find("..") != std::string_view::npos) {
+        return false;
+    }
+    return std::ranges::none_of(url, [](char ch) {
+        const auto byte = static_cast<unsigned char>(ch);
+        return byte < 0x20 || byte == 0x7f || ch == '\\';
+    });
 }
 
 [[nodiscard]] bool is_user_banned(const models::User& user, std::int64_t now)
@@ -377,7 +392,7 @@ AuthResult<models::User> AuthService::update_profile(
     std::optional<std::string> avatar_url;
     if(request.avatar_url.has_value()) {
         const auto trimmed = trim(*request.avatar_url);
-        if(trimmed.empty() || trimmed.size() > kMaxAvatarUrlLength) {
+        if(!is_valid_avatar_url(trimmed)) {
             return AuthError::invalid_input;
         }
         avatar_url = trimmed;

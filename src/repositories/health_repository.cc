@@ -23,4 +23,15 @@ bool HealthRepository::can_query_database() const
     }
 }
 
+bool HealthRepository::foreign_keys_enabled() const
+{
+    try {
+        const auto client = drogon::app().getDbClient(db_client_name_);
+        const auto rows = client->execSqlSync("PRAGMA foreign_keys;");
+        return !rows.empty() && rows.at(0)["foreign_keys"].as<int>() == 1;
+    } catch(const std::exception&) {
+        return false;
+    }
+}
+
 }

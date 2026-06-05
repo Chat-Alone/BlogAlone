@@ -3,6 +3,7 @@
 #include "controllers/auth_controller.h"
 #include "controllers/health_controller.h"
 #include "controllers/page_controller.h"
+#include "filters/csrf_filter.h"
 #include "http/api_error.h"
 #include "http/request_context.h"
 
@@ -15,6 +16,7 @@ namespace blogalone {
 void register_routes()
 {
     http::install_request_context_advice();
+    filters::install_csrf_guard_advice();
     drogon::app().setCustomErrorHandler(
         [](drogon::HttpStatusCode status, const drogon::HttpRequestPtr& request) {
             const auto code = status == drogon::k404NotFound

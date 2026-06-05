@@ -3,6 +3,7 @@
 
 #include <drogon/drogon.h>
 
+#include <iostream>
 #include <optional>
 #include <span>
 #include <string>
@@ -29,12 +30,12 @@ int main(int argc, char* argv[])
     blogalone::register_routes();
 
     const auto args = std::span<char* const>{argv, static_cast<std::size_t>(argc)};
-    if(const auto config_path = config_path_from(args)) {
-        drogon::app().loadConfigFile(*config_path);
-    } else {
-        drogon::app().addListener("127.0.0.1", 8080);
-        drogon::app().setThreadNum(1);
+    const auto config_path = config_path_from(args);
+    if(!config_path) {
+        std::cerr << "blogalone: --config <path> is required\n";
+        return 1;
     }
 
+    drogon::app().loadConfigFile(*config_path);
     drogon::app().run();
 }

@@ -10,6 +10,7 @@ namespace blogalone::services {
 struct HealthStatus {
     std::string status;
     bool database_ok{};
+    bool foreign_keys_ok{};
     std::int64_t checked_at{};
 };
 

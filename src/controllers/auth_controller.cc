@@ -355,8 +355,7 @@ void register_auth_routes()
         },
         {drogon::Post,
          std::string{"blogalone::filters::SessionFilter"},
-         std::string{"blogalone::filters::RequireAuthFilter"},
-         std::string{"blogalone::filters::CsrfFilter"}}
+         std::string{"blogalone::filters::RequireAuthFilter"}}
     );
 
     drogon::app().registerHandler(
@@ -380,8 +379,7 @@ void register_auth_routes()
         },
         {drogon::Patch,
          std::string{"blogalone::filters::SessionFilter"},
-         std::string{"blogalone::filters::RequireAuthFilter"},
-         std::string{"blogalone::filters::CsrfFilter"}}
+         std::string{"blogalone::filters::RequireAuthFilter"}}
     );
 }
 

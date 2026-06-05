@@ -22,9 +22,10 @@ void register_health_routes()
             body["status"] = status.status;
             body["checked_at"] = Json::Int64{status.checked_at};
             body["dependencies"]["database"] = status.database_ok;
+            body["dependencies"]["foreign_keys"] = status.foreign_keys_ok;
 
             auto response = drogon::HttpResponse::newHttpJsonResponse(body);
-            if(!status.database_ok) {
+            if(status.status != "ok") {
                 response->setStatusCode(drogon::k503ServiceUnavailable);
             }
             callback(std::move(response));

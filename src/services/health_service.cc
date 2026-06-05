@@ -14,9 +14,11 @@ HealthService::HealthService(repositories::HealthRepository repository)
 HealthStatus HealthService::check() const
 {
     const auto database_ok = repository_.can_query_database();
+    const auto foreign_keys_ok = database_ok && repository_.foreign_keys_enabled();
     return HealthStatus{
-        .status = database_ok ? "ok" : "degraded",
+        .status = (database_ok && foreign_keys_ok) ? "ok" : "degraded",
         .database_ok = database_ok,
+        .foreign_keys_ok = foreign_keys_ok,
         .checked_at = util::utc_unix_seconds()
     };
 }

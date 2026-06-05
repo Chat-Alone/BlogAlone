@@ -14,5 +14,6 @@ class CsrfFilter : public drogon::HttpFilter<CsrfFilter> {
 };
 
 void ensure_csrf_filter_registered();
+void install_csrf_guard_advice();
 
 }

@@ -5,7 +5,7 @@
 #include "http/session_context.h"
 #include "util/crypto.h"
 
-#include <drogon/HttpTypes.h>
+#include <drogon/drogon.h>
 
 #include <algorithm>
 #include <cctype>
@@ -114,6 +114,36 @@ namespace {
     return true;
 }
 
+[[nodiscard]] std::optional<drogon::HttpResponsePtr> check_write_csrf(
+    const drogon::HttpRequestPtr& request
+)
+{
+    const auto session = http::session_context_of(request);
+    if(!session.has_value()) {
+        return http::make_error_response(
+            http::make_api_error(http::ErrorCode::unauthenticated, "authentication required"),
+            http::request_id_from(request)
+        );
+    }
+    if(!same_origin_write_request(request)) {
+        return forbidden(request, "cross-site request rejected");
+    }
+
+    const auto provided = request->getHeader(std::string{http::csrf_header_name});
+    if(provided.empty()) {
+        return forbidden(request, "missing csrf token");
+    }
+    if(util::sha256_hex(provided) != session->csrf_hash) {
+        return forbidden(request, "invalid csrf token");
+    }
+    return std::nullopt;
+}
+
+[[nodiscard]] bool is_csrf_exempt_path(std::string_view path)
+{
+    return path == "/api/auth/register" || path == "/api/auth/login";
+}
+
 }
 
 void CsrfFilter::doFilter(
@@ -126,32 +156,30 @@ void CsrfFilter::doFilter(
         chain();
         return;
     }
-
-    const auto session = http::session_context_of(request);
-    if(!session.has_value()) {
-        failure(http::make_error_response(
-            http::make_api_error(http::ErrorCode::unauthenticated, "authentication required"),
-            http::request_id_from(request)
-        ));
+    if(auto rejection = check_write_csrf(request)) {
+        failure(*rejection);
         return;
     }
-
-    if(!same_origin_write_request(request)) {
-        failure(forbidden(request, "cross-site request rejected"));
-        return;
-    }
-
-    const auto provided = request->getHeader(std::string{http::csrf_header_name});
-    if(provided.empty()) {
-        failure(forbidden(request, "missing csrf token"));
-        return;
-    }
-    if(util::sha256_hex(provided) != session->csrf_hash) {
-        failure(forbidden(request, "invalid csrf token"));
-        return;
-    }
-
     chain();
+}
+
+void install_csrf_guard_advice()
+{
+    drogon::app().registerPreHandlingAdvice(
+        [](const drogon::HttpRequestPtr& request,
+           drogon::AdviceCallback&& intercept,
+           drogon::AdviceChainCallback&& chain) {
+            if(!is_write_method(request->method()) || is_csrf_exempt_path(request->path())) {
+                chain();
+                return;
+            }
+            if(auto rejection = check_write_csrf(request)) {
+                intercept(*rejection);
+                return;
+            }
+            chain();
+        }
+    );
 }
 
 void ensure_csrf_filter_registered()
