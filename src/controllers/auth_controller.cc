@@ -57,12 +57,22 @@ using HttpCallback = std::function<void(const drogon::HttpResponsePtr&)>;
     return request->getJsonObject();
 }
 
-[[nodiscard]] std::optional<std::string> json_string(const Json::Value& object, const char* key)
+// null is "not provided", not a type error: clients omit optional fields this way.
+[[nodiscard]] std::optional<std::string> json_string(
+    const Json::Value& object,
+    std::string_view key,
+    bool& type_error
+)
 {
-    if(!object.isMember(key) || !object[key].isString()) {
+    const auto* value = object.find(key.data(), key.data() + key.size());
+    if(value == nullptr || value->isNull()) {
         return std::nullopt;
     }
-    return object[key].asString();
+    if(!value->isString()) {
+        type_error = true;
+        return std::nullopt;
+    }
+    return value->asString();
 }
 
 [[nodiscard]] Json::Value user_to_json(const models::User& user)
@@ -156,11 +166,16 @@ void handle_register(
         return;
     }
 
+    bool type_error = false;
     services::RegisterRequest registration{
-        .username = json_string(*body, "username").value_or(""),
-        .email = json_string(*body, "email"),
-        .password = json_string(*body, "password").value_or("")
+        .username = json_string(*body, "username", type_error).value_or(""),
+        .email = json_string(*body, "email", type_error),
+        .password = json_string(*body, "password", type_error).value_or("")
     };
+    if(type_error) {
+        callback(error_response(request, http::ErrorCode::invalid_argument, "invalid field type"));
+        return;
+    }
 
     const auto config = config::app_config_from_drogon();
     const services::AuthService service{
@@ -199,10 +214,15 @@ void handle_login(
         return;
     }
 
+    bool type_error = false;
     services::LoginRequest login{
-        .username = json_string(*body, "username").value_or(""),
-        .password = json_string(*body, "password").value_or("")
+        .username = json_string(*body, "username", type_error).value_or(""),
+        .password = json_string(*body, "password", type_error).value_or("")
     };
+    if(type_error) {
+        callback(error_response(request, http::ErrorCode::invalid_argument, "invalid field type"));
+        return;
+    }
 
     const auto config = config::app_config_from_drogon();
     const services::AuthService service{
@@ -294,10 +314,15 @@ void handle_patch_me(
         return;
     }
 
+    bool type_error = false;
     services::UpdateProfileRequest update{
-        .email = json_string(*body, "email"),
-        .avatar_url = json_string(*body, "avatar_url")
+        .email = json_string(*body, "email", type_error),
+        .avatar_url = json_string(*body, "avatar_url", type_error)
     };
+    if(type_error) {
+        callback(error_response(request, http::ErrorCode::invalid_argument, "invalid field type"));
+        return;
+    }
 
     const auto result = services::AuthService{}.update_profile(
         session->user_id,
