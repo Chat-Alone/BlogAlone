@@ -22,12 +22,19 @@
       <div class="section-heading">
         <div>
           <p class="eyebrow">Thread</p>
-          <h1 id="thread-title">Thread detail</h1>
+          <h1 id="thread-title">Loading thread</h1>
         </div>
-        <span class="status-pill">Read only</span>
+        <span class="status-pill" data-thread-status>Loading</span>
       </div>
-      <div class="empty-state">
-        <p>No posts yet.</p>
+      <div class="rich-body" data-thread-body></div>
+      <div class="section-heading replies-heading">
+        <h2>Replies</h2>
+        <span class="status-pill" data-posts-count>0</span>
+      </div>
+      <div class="post-list" data-posts-list>
+        <div class="empty-state">
+          <p>Loading replies.</p>
+        </div>
       </div>
     </article>
   </main>

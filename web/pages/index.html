@@ -25,13 +25,31 @@
       </div>
       <a class="primary-action" href="/api/healthz">API status</a>
     </section>
-    <section class="content-panel" aria-labelledby="forums-title">
-      <div class="section-heading">
-        <h2 id="forums-title">Forums</h2>
-        <span class="status-pill">MVP</span>
+    <section class="board-layout" aria-label="Forum board">
+      <div class="content-panel" aria-labelledby="forums-title">
+        <div class="section-heading">
+          <h2 id="forums-title">Forums</h2>
+          <span class="status-pill" data-forums-status>Loading</span>
+        </div>
+        <div class="stack-list" data-forums-list>
+          <div class="empty-state">
+            <p>Loading forums.</p>
+          </div>
+        </div>
       </div>
-      <div class="empty-state">
-        <p>No forums yet.</p>
+      <div class="content-panel" aria-labelledby="threads-title">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow" data-current-forum>Threads</p>
+            <h2 id="threads-title">Latest threads</h2>
+          </div>
+          <span class="status-pill" data-threads-status>Idle</span>
+        </div>
+        <div class="stack-list" data-threads-list>
+          <div class="empty-state">
+            <p>Select a forum.</p>
+          </div>
+        </div>
       </div>
     </section>
   </main>

@@ -55,6 +55,7 @@ add_library(blogalone_core STATIC
     src/app/routes.cc
     src/config/app_config.cc
     src/controllers/auth_controller.cc
+    src/controllers/forum_controller.cc
     src/controllers/health_controller.cc
     src/controllers/page_controller.cc
     src/db/migrations.cc
@@ -66,10 +67,12 @@ add_library(blogalone_core STATIC
     src/http/static_files.cc
     src/models/user.cc
     src/plugins/database_migration_plugin.cc
+    src/repositories/forum_repository.cc
     src/repositories/health_repository.cc
     src/repositories/session_repository.cc
     src/repositories/user_repository.cc
     src/services/auth_service.cc
+    src/services/forum_service.cc
     src/services/health_service.cc
     src/util/crypto.cc
     src/util/password.cc
@@ -119,6 +122,7 @@ if(BUILD_TESTING)
     add_executable(blogalone_unit_tests
         tests/unit/auth_test.cc
         tests/unit/deps_smoke_test.cc
+        tests/unit/forum_test.cc
         tests/unit/infrastructure_test.cc
         tests/unit/migration_runner_test.cc
     )

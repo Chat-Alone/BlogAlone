@@ -152,6 +152,11 @@ h2 {
   padding: 1.25rem;
 }
 
+.board-layout {
+  display: grid;
+  gap: 1.5rem;
+}
+
 .thread-shell {
   min-height: 22rem;
 }
@@ -188,6 +193,89 @@ h2 {
   line-height: 1.7;
 }
 
+.stack-list,
+.post-list,
+.sub-post-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.forum-row,
+.thread-row,
+.post,
+.sub-post {
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--surface);
+}
+
+.forum-row,
+.thread-row {
+  display: flex;
+  width: 100%;
+  min-height: 4rem;
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 1rem;
+  color: inherit;
+  text-align: left;
+}
+
+.forum-row {
+  cursor: pointer;
+  font: inherit;
+}
+
+.forum-row:hover,
+.thread-row:hover {
+  border-color: var(--accent);
+}
+
+.forum-row:focus-visible,
+.thread-row:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 3px;
+}
+
+.forum-row span,
+.thread-meta {
+  color: var(--muted-foreground);
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.rich-body {
+  color: var(--foreground);
+  line-height: 1.75;
+}
+
+.rich-body p {
+  max-width: 68ch;
+}
+
+.replies-heading {
+  border-top: 1px solid var(--border);
+  padding-top: 1rem;
+}
+
+.post {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 1rem;
+}
+
+.sub-post-list {
+  border-left: 3px solid var(--muted);
+  padding-left: 1rem;
+}
+
+.sub-post {
+  padding: 0.875rem;
+}
+
 .site-footer {
   color: var(--muted-foreground);
   padding-block: 1.5rem;
@@ -216,6 +304,10 @@ h2 {
 @media (min-width: 768px) {
   .hero {
     padding: 2rem;
+  }
+
+  .board-layout {
+    grid-template-columns: minmax(16rem, 0.8fr) minmax(0, 1.2fr);
   }
 
   h1 {

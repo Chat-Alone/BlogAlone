@@ -2,5 +2,6 @@
   "cmake.configurePreset": "windows-vs",
   "cmake.buildPreset": "windows-vs-debug",
   "cmake.testPreset": "windows-vs-debug",
-  "C_Cpp.default.configurationProvider": "ms-vscode.cmake-tools"
+  "C_Cpp.default.configurationProvider": "ms-vscode.cmake-tools",
+  "C_Cpp.default.cppStandard": "c++20"
 }

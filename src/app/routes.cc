@@ -1,6 +1,7 @@
 #include "app/routes.h"
 
 #include "controllers/auth_controller.h"
+#include "controllers/forum_controller.h"
 #include "controllers/health_controller.h"
 #include "controllers/page_controller.h"
 #include "filters/csrf_filter.h"
@@ -34,6 +35,7 @@ void register_routes()
     controllers::register_health_routes();
     controllers::register_page_routes();
     controllers::register_auth_routes();
+    controllers::register_forum_routes();
 }
 
 }

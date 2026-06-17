@@ -2,6 +2,7 @@ build/
 build-*/
 out/
 .vs/
+.vscode/
 .vcpkg-cache/
 vcpkg_installed/
 *.db
