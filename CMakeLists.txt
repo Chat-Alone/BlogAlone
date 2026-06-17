@@ -62,6 +62,7 @@ add_library(blogalone_core STATIC
     src/filters/csrf_filter.cc
     src/filters/session_filter.cc
     src/http/api_error.cc
+    src/http/json_body.cc
     src/http/request_context.cc
     src/http/session_context.cc
     src/http/static_files.cc

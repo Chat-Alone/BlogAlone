@@ -3,6 +3,7 @@
 #include "filters/session_filter.h"
 #include "http/api_error.h"
 #include "http/handler_guard.h"
+#include "http/json_body.h"
 #include "http/request_context.h"
 #include "http/session_context.h"
 #include "models/forum.h"
@@ -14,7 +15,6 @@
 
 #include <charconv>
 #include <functional>
-#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -101,45 +101,6 @@ using HttpCallback = std::function<void(const drogon::HttpResponsePtr&)>;
         .page = query_int64(request, "page", 1),
         .page_size = query_int64(request, "page_size", 20)
     };
-}
-
-[[nodiscard]] std::shared_ptr<Json::Value> parse_json_body(const drogon::HttpRequestPtr& request)
-{
-    return request->getJsonObject();
-}
-
-[[nodiscard]] std::optional<std::string> json_string(
-    const Json::Value& object,
-    std::string_view key,
-    bool& type_error
-)
-{
-    const auto* value = object.find(key.data(), key.data() + key.size());
-    if(value == nullptr || value->isNull()) {
-        return std::nullopt;
-    }
-    if(!value->isString()) {
-        type_error = true;
-        return std::nullopt;
-    }
-    return value->asString();
-}
-
-[[nodiscard]] std::optional<std::int64_t> json_int64(
-    const Json::Value& object,
-    std::string_view key,
-    bool& type_error
-)
-{
-    const auto* value = object.find(key.data(), key.data() + key.size());
-    if(value == nullptr || value->isNull()) {
-        return std::nullopt;
-    }
-    if(!value->isInt64() && !value->isUInt64()) {
-        type_error = true;
-        return std::nullopt;
-    }
-    return value->asInt64();
 }
 
 [[nodiscard]] Json::Value user_ref_json(std::int64_t id, std::string_view username)
@@ -307,7 +268,7 @@ void handle_create_thread(const drogon::HttpRequestPtr& request, const HttpCallb
         return;
     }
 
-    const auto body = parse_json_body(request);
+    const auto body = http::parse_json_body(request);
     if(!body) {
         callback(error_response(request, http::ErrorCode::invalid_argument, "invalid json body"));
         return;
@@ -315,9 +276,9 @@ void handle_create_thread(const drogon::HttpRequestPtr& request, const HttpCallb
 
     bool type_error = false;
     const services::CreateThreadRequest create{
-        .forum_slug = json_string(*body, "forum_slug", type_error).value_or(""),
-        .title = json_string(*body, "title", type_error).value_or(""),
-        .body_md = json_string(*body, "body_md", type_error).value_or("")
+        .forum_slug = http::json_string(*body, "forum_slug", type_error).value_or(""),
+        .title = http::json_string(*body, "title", type_error).value_or(""),
+        .body_md = http::json_string(*body, "body_md", type_error).value_or("")
     };
     if(type_error) {
         callback(error_response(request, http::ErrorCode::invalid_argument, "invalid field type"));
@@ -353,7 +314,7 @@ void handle_update_thread(
         return;
     }
 
-    const auto body = parse_json_body(request);
+    const auto body = http::parse_json_body(request);
     if(!body) {
         callback(error_response(request, http::ErrorCode::invalid_argument, "invalid json body"));
         return;
@@ -361,8 +322,8 @@ void handle_update_thread(
 
     bool type_error = false;
     const services::UpdateThreadRequest update{
-        .title = json_string(*body, "title", type_error).value_or(""),
-        .body_md = json_string(*body, "body_md", type_error).value_or("")
+        .title = http::json_string(*body, "title", type_error).value_or(""),
+        .body_md = http::json_string(*body, "body_md", type_error).value_or("")
     };
     if(type_error) {
         callback(error_response(request, http::ErrorCode::invalid_argument, "invalid field type"));
@@ -424,7 +385,7 @@ void handle_create_post(
         return;
     }
 
-    const auto body = parse_json_body(request);
+    const auto body = http::parse_json_body(request);
     if(!body) {
         callback(error_response(request, http::ErrorCode::invalid_argument, "invalid json body"));
         return;
@@ -433,7 +394,7 @@ void handle_create_post(
     bool type_error = false;
     const services::CreatePostRequest create{
         .thread_id = thread_id,
-        .body_md = json_string(*body, "body_md", type_error).value_or("")
+        .body_md = http::json_string(*body, "body_md", type_error).value_or("")
     };
     if(type_error) {
         callback(error_response(request, http::ErrorCode::invalid_argument, "invalid field type"));
@@ -469,7 +430,7 @@ void handle_update_post(
         return;
     }
 
-    const auto body = parse_json_body(request);
+    const auto body = http::parse_json_body(request);
     if(!body) {
         callback(error_response(request, http::ErrorCode::invalid_argument, "invalid json body"));
         return;
@@ -477,7 +438,7 @@ void handle_update_post(
 
     bool type_error = false;
     const services::UpdatePostRequest update{
-        .body_md = json_string(*body, "body_md", type_error).value_or("")
+        .body_md = http::json_string(*body, "body_md", type_error).value_or("")
     };
     if(type_error) {
         callback(error_response(request, http::ErrorCode::invalid_argument, "invalid field type"));
@@ -539,7 +500,7 @@ void handle_create_sub_post(
         return;
     }
 
-    const auto body = parse_json_body(request);
+    const auto body = http::parse_json_body(request);
     if(!body) {
         callback(error_response(request, http::ErrorCode::invalid_argument, "invalid json body"));
         return;
@@ -548,8 +509,8 @@ void handle_create_sub_post(
     bool type_error = false;
     const services::CreateSubPostRequest create{
         .post_id = post_id,
-        .body_md = json_string(*body, "body_md", type_error).value_or(""),
-        .reply_to_user_id = json_int64(*body, "reply_to_user_id", type_error)
+        .body_md = http::json_string(*body, "body_md", type_error).value_or(""),
+        .reply_to_user_id = http::json_int64(*body, "reply_to_user_id", type_error)
     };
     if(type_error) {
         callback(error_response(request, http::ErrorCode::invalid_argument, "invalid field type"));
@@ -585,7 +546,7 @@ void handle_update_sub_post(
         return;
     }
 
-    const auto body = parse_json_body(request);
+    const auto body = http::parse_json_body(request);
     if(!body) {
         callback(error_response(request, http::ErrorCode::invalid_argument, "invalid json body"));
         return;
@@ -593,7 +554,7 @@ void handle_update_sub_post(
 
     bool type_error = false;
     const services::UpdateSubPostRequest update{
-        .body_md = json_string(*body, "body_md", type_error).value_or("")
+        .body_md = http::json_string(*body, "body_md", type_error).value_or("")
     };
     if(type_error) {
         callback(error_response(request, http::ErrorCode::invalid_argument, "invalid field type"));

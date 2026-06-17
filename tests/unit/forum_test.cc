@@ -8,6 +8,7 @@
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <stdexcept>
@@ -163,13 +164,79 @@ TEST_F(ForumServiceTest, RejectsInvalidPagination)
 {
     static_cast<void>(insert_forum("general"));
 
-    const auto result = service_.list_threads(
+    const auto zero_page = service_.list_threads(
         "general",
         blogalone::services::PaginationRequest{.page = 0, .page_size = 20}
     );
+    const auto negative_page = service_.list_threads(
+        "general",
+        blogalone::services::PaginationRequest{.page = -1, .page_size = 20}
+    );
+    const auto oversized_page_size = service_.list_threads(
+        "general",
+        blogalone::services::PaginationRequest{.page = 1, .page_size = 51}
+    );
 
-    ASSERT_FALSE(result.has_value());
-    EXPECT_EQ(result.error(), blogalone::services::ForumError::invalid_input);
+    ASSERT_FALSE(zero_page.has_value());
+    ASSERT_FALSE(negative_page.has_value());
+    ASSERT_FALSE(oversized_page_size.has_value());
+    EXPECT_EQ(zero_page.error(), blogalone::services::ForumError::invalid_input);
+    EXPECT_EQ(negative_page.error(), blogalone::services::ForumError::invalid_input);
+    EXPECT_EQ(oversized_page_size.error(), blogalone::services::ForumError::invalid_input);
+}
+
+TEST_F(ForumServiceTest, AllowsMaxPageSizeAndReturnsEmptyPagePastEnd)
+{
+    const auto author_id = insert_user("page_boundary_author");
+    static_cast<void>(insert_forum("general"));
+    const auto thread = create_thread(author_id);
+    ASSERT_TRUE(thread.has_value());
+
+    const auto threads = service_.list_threads(
+        "general",
+        blogalone::services::PaginationRequest{.page = 2, .page_size = 50}
+    );
+    const auto detail = service_.get_thread(
+        thread->id,
+        blogalone::services::PaginationRequest{.page = 2, .page_size = 50}
+    );
+
+    ASSERT_TRUE(threads.has_value());
+    ASSERT_TRUE(detail.has_value());
+    EXPECT_TRUE(threads->items.empty());
+    EXPECT_EQ(threads->page_size, 50);
+    EXPECT_EQ(threads->total, 1);
+    EXPECT_TRUE(detail->posts.items.empty());
+    EXPECT_EQ(detail->posts.page_size, 50);
+    EXPECT_EQ(detail->posts.total, 0);
+}
+
+TEST_F(ForumServiceTest, RejectsPaginationThatWouldOverflowOffset)
+{
+    const auto author_id = insert_user("huge_page_author");
+    static_cast<void>(insert_forum("general"));
+    const auto thread = create_thread(author_id);
+    ASSERT_TRUE(thread.has_value());
+
+    const auto threads = service_.list_threads(
+        "general",
+        blogalone::services::PaginationRequest{
+            .page = (std::numeric_limits<std::int64_t>::max)(),
+            .page_size = 50
+        }
+    );
+    const auto detail = service_.get_thread(
+        thread->id,
+        blogalone::services::PaginationRequest{
+            .page = (std::numeric_limits<std::int64_t>::max)(),
+            .page_size = 50
+        }
+    );
+
+    ASSERT_FALSE(threads.has_value());
+    ASSERT_FALSE(detail.has_value());
+    EXPECT_EQ(threads.error(), blogalone::services::ForumError::invalid_input);
+    EXPECT_EQ(detail.error(), blogalone::services::ForumError::invalid_input);
 }
 
 TEST_F(ForumServiceTest, CreatesPostsWithSequentialFloorsAndReplyCount)
@@ -216,6 +283,40 @@ TEST_F(ForumServiceTest, CreatesPostsWithSequentialFloorsAndReplyCount)
     EXPECT_EQ(detail->posts.items.at(1).post.id, second->post.id);
 }
 
+TEST_F(ForumServiceTest, ReturnsConflictWhenPostFloorCollisionPersists)
+{
+    const auto author_id = insert_user("conflict_author");
+    static_cast<void>(insert_forum("general"));
+    const auto thread = create_thread(author_id);
+    ASSERT_TRUE(thread.has_value());
+    client_->execSqlSync(
+        "CREATE TRIGGER collide_post_floor BEFORE INSERT ON posts "
+        "WHEN NEW.body_md <> 'shadow' "
+        "BEGIN "
+        "INSERT INTO posts (thread_id, author_id, floor_no, body_md, body_html, created_at, updated_at) "
+        "VALUES (NEW.thread_id, NEW.author_id, NEW.floor_no, 'shadow', '<p>shadow</p>', "
+        "NEW.created_at, NEW.updated_at); "
+        "END;"
+    );
+
+    const auto result = service_.create_post(
+        author_id,
+        blogalone::services::CreatePostRequest{
+            .thread_id = thread->id,
+            .body_md = "colliding reply"
+        },
+        30
+    );
+    const auto rows = client_->execSqlSync(
+        "SELECT COUNT(*) AS count FROM posts WHERE thread_id = ?",
+        thread->id
+    );
+
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error(), blogalone::services::ForumError::conflict);
+    EXPECT_EQ(rows.at(0)["count"].as<std::int64_t>(), 0);
+}
+
 TEST_F(ForumServiceTest, CreatesSubPostsWithoutIncrementingReplyCount)
 {
     const auto author_id = insert_user("sub_author");
@@ -260,6 +361,178 @@ TEST_F(ForumServiceTest, CreatesSubPostsWithoutIncrementingReplyCount)
     EXPECT_EQ(detail->posts.items.at(0).sub_posts.at(0).id, sub_post->id);
 }
 
+TEST_F(ForumServiceTest, RejectsInvalidForumAndBodyInputs)
+{
+    const auto author_id = insert_user("invalid_input_author");
+    static_cast<void>(insert_forum("general"));
+    const auto thread = create_thread(author_id);
+    ASSERT_TRUE(thread.has_value());
+    const auto post = service_.create_post(
+        author_id,
+        blogalone::services::CreatePostRequest{
+            .thread_id = thread->id,
+            .body_md = "floor reply"
+        },
+        30
+    );
+    ASSERT_TRUE(post.has_value());
+
+    const auto invalid_slug_list = service_.list_threads(
+        "BadSlug",
+        blogalone::services::PaginationRequest{.page = 1, .page_size = 20}
+    );
+    const auto invalid_slug_create = service_.create_thread(
+        author_id,
+        blogalone::services::CreateThreadRequest{
+            .forum_slug = "BadSlug",
+            .title = "Valid title",
+            .body_md = "Valid body"
+        },
+        31
+    );
+    const auto empty_post = service_.create_post(
+        author_id,
+        blogalone::services::CreatePostRequest{
+            .thread_id = thread->id,
+            .body_md = "   "
+        },
+        32
+    );
+    const auto oversized_post = service_.update_post(
+        author_id,
+        post->post.id,
+        blogalone::services::UpdatePostRequest{.body_md = std::string(20'001, 'x')},
+        33
+    );
+    const auto invalid_reply_target = service_.create_sub_post(
+        author_id,
+        blogalone::services::CreateSubPostRequest{
+            .post_id = post->post.id,
+            .body_md = "nested reply",
+            .reply_to_user_id = 0
+        },
+        34
+    );
+    const auto oversized_sub_post = service_.create_sub_post(
+        author_id,
+        blogalone::services::CreateSubPostRequest{
+            .post_id = post->post.id,
+            .body_md = std::string(2'001, 'x'),
+            .reply_to_user_id = std::nullopt
+        },
+        35
+    );
+
+    ASSERT_FALSE(invalid_slug_list.has_value());
+    ASSERT_FALSE(invalid_slug_create.has_value());
+    ASSERT_FALSE(empty_post.has_value());
+    ASSERT_FALSE(oversized_post.has_value());
+    ASSERT_FALSE(invalid_reply_target.has_value());
+    ASSERT_FALSE(oversized_sub_post.has_value());
+    EXPECT_EQ(invalid_slug_list.error(), blogalone::services::ForumError::invalid_input);
+    EXPECT_EQ(invalid_slug_create.error(), blogalone::services::ForumError::invalid_input);
+    EXPECT_EQ(empty_post.error(), blogalone::services::ForumError::invalid_input);
+    EXPECT_EQ(oversized_post.error(), blogalone::services::ForumError::invalid_input);
+    EXPECT_EQ(invalid_reply_target.error(), blogalone::services::ForumError::invalid_input);
+    EXPECT_EQ(oversized_sub_post.error(), blogalone::services::ForumError::invalid_input);
+}
+
+TEST_F(ForumServiceTest, DeletingPostsRecomputesReplyCountAndLastReply)
+{
+    const auto author_id = insert_user("delete_post_author");
+    const auto replier_id = insert_user("delete_post_replier");
+    static_cast<void>(insert_forum("general"));
+    const auto thread = create_thread(author_id);
+    ASSERT_TRUE(thread.has_value());
+    const auto first = service_.create_post(
+        replier_id,
+        blogalone::services::CreatePostRequest{
+            .thread_id = thread->id,
+            .body_md = "first reply"
+        },
+        30
+    );
+    const auto second = service_.create_post(
+        author_id,
+        blogalone::services::CreatePostRequest{
+            .thread_id = thread->id,
+            .body_md = "second reply"
+        },
+        31
+    );
+    ASSERT_TRUE(first.has_value());
+    ASSERT_TRUE(second.has_value());
+
+    const auto deleted_second = service_.delete_post(author_id, second->post.id, 40);
+    ASSERT_TRUE(deleted_second.has_value());
+    const auto after_second_delete = service_.get_thread(
+        thread->id,
+        blogalone::services::PaginationRequest{.page = 1, .page_size = 20}
+    );
+
+    ASSERT_TRUE(after_second_delete.has_value());
+    EXPECT_EQ(after_second_delete->thread.reply_count, 1);
+    EXPECT_EQ(after_second_delete->thread.last_reply_at, std::optional<std::int64_t>{30});
+    EXPECT_EQ(after_second_delete->thread.last_reply_user_id, std::optional<std::int64_t>{replier_id});
+    ASSERT_EQ(after_second_delete->posts.items.size(), 1);
+    EXPECT_EQ(after_second_delete->posts.items.at(0).post.id, first->post.id);
+
+    const auto deleted_first = service_.delete_post(replier_id, first->post.id, 41);
+    ASSERT_TRUE(deleted_first.has_value());
+    const auto after_all_deleted = service_.get_thread(
+        thread->id,
+        blogalone::services::PaginationRequest{.page = 1, .page_size = 20}
+    );
+
+    ASSERT_TRUE(after_all_deleted.has_value());
+    EXPECT_EQ(after_all_deleted->thread.reply_count, 0);
+    EXPECT_EQ(after_all_deleted->thread.last_reply_at, std::optional<std::int64_t>{10});
+    EXPECT_EQ(after_all_deleted->thread.last_reply_user_id, std::optional<std::int64_t>{author_id});
+    EXPECT_TRUE(after_all_deleted->posts.items.empty());
+}
+
+TEST_F(ForumServiceTest, DeletingSubPostMovesLastReplyBackToVisiblePost)
+{
+    const auto author_id = insert_user("delete_sub_author");
+    const auto replier_id = insert_user("delete_sub_replier");
+    static_cast<void>(insert_forum("general"));
+    const auto thread = create_thread(author_id);
+    ASSERT_TRUE(thread.has_value());
+    const auto post = service_.create_post(
+        author_id,
+        blogalone::services::CreatePostRequest{
+            .thread_id = thread->id,
+            .body_md = "floor reply"
+        },
+        40
+    );
+    ASSERT_TRUE(post.has_value());
+    const auto sub_post = service_.create_sub_post(
+        replier_id,
+        blogalone::services::CreateSubPostRequest{
+            .post_id = post->post.id,
+            .body_md = "nested reply",
+            .reply_to_user_id = author_id
+        },
+        41
+    );
+    ASSERT_TRUE(sub_post.has_value());
+
+    const auto deleted = service_.delete_sub_post(replier_id, sub_post->id, 42);
+    ASSERT_TRUE(deleted.has_value());
+    const auto detail = service_.get_thread(
+        thread->id,
+        blogalone::services::PaginationRequest{.page = 1, .page_size = 20}
+    );
+
+    ASSERT_TRUE(detail.has_value());
+    EXPECT_EQ(detail->thread.reply_count, 1);
+    EXPECT_EQ(detail->thread.last_reply_at, std::optional<std::int64_t>{40});
+    EXPECT_EQ(detail->thread.last_reply_user_id, std::optional<std::int64_t>{author_id});
+    ASSERT_EQ(detail->posts.items.size(), 1);
+    EXPECT_TRUE(detail->posts.items.at(0).sub_posts.empty());
+}
+
 TEST_F(ForumServiceTest, RejectsMissingReplyTargetUser)
 {
     const auto author_id = insert_user("missing_reply_target_author");
@@ -288,6 +561,78 @@ TEST_F(ForumServiceTest, RejectsMissingReplyTargetUser)
 
     ASSERT_FALSE(sub_post.has_value());
     EXPECT_EQ(sub_post.error(), blogalone::services::ForumError::not_found);
+}
+
+TEST_F(ForumServiceTest, AllowsOnlyOwnersToEditAndDeleteReplies)
+{
+    const auto author_id = insert_user("reply_owner_author");
+    const auto other_id = insert_user("reply_owner_other");
+    static_cast<void>(insert_forum("general"));
+    const auto thread = create_thread(author_id);
+    ASSERT_TRUE(thread.has_value());
+    const auto post = service_.create_post(
+        author_id,
+        blogalone::services::CreatePostRequest{
+            .thread_id = thread->id,
+            .body_md = "floor reply"
+        },
+        60
+    );
+    ASSERT_TRUE(post.has_value());
+    const auto sub_post = service_.create_sub_post(
+        other_id,
+        blogalone::services::CreateSubPostRequest{
+            .post_id = post->post.id,
+            .body_md = "nested reply",
+            .reply_to_user_id = author_id
+        },
+        61
+    );
+    ASSERT_TRUE(sub_post.has_value());
+
+    const auto forbidden_post_update = service_.update_post(
+        other_id,
+        post->post.id,
+        blogalone::services::UpdatePostRequest{.body_md = "wrong owner"},
+        62
+    );
+    const auto updated_post = service_.update_post(
+        author_id,
+        post->post.id,
+        blogalone::services::UpdatePostRequest{.body_md = "updated floor"},
+        63
+    );
+    const auto forbidden_sub_update = service_.update_sub_post(
+        author_id,
+        sub_post->id,
+        blogalone::services::UpdateSubPostRequest{.body_md = "wrong owner"},
+        64
+    );
+    const auto updated_sub = service_.update_sub_post(
+        other_id,
+        sub_post->id,
+        blogalone::services::UpdateSubPostRequest{.body_md = "updated nested"},
+        65
+    );
+
+    ASSERT_FALSE(forbidden_post_update.has_value());
+    EXPECT_EQ(forbidden_post_update.error(), blogalone::services::ForumError::forbidden);
+    ASSERT_TRUE(updated_post.has_value());
+    EXPECT_EQ(updated_post->post.body_html, "<p>updated floor</p>");
+    ASSERT_FALSE(forbidden_sub_update.has_value());
+    EXPECT_EQ(forbidden_sub_update.error(), blogalone::services::ForumError::forbidden);
+    ASSERT_TRUE(updated_sub.has_value());
+    EXPECT_EQ(updated_sub->body_html, "<p>updated nested</p>");
+
+    const auto forbidden_post_delete = service_.delete_post(other_id, post->post.id, 66);
+    const auto forbidden_sub_delete = service_.delete_sub_post(author_id, sub_post->id, 67);
+    const auto deleted_sub = service_.delete_sub_post(other_id, sub_post->id, 68);
+
+    ASSERT_FALSE(forbidden_post_delete.has_value());
+    EXPECT_EQ(forbidden_post_delete.error(), blogalone::services::ForumError::forbidden);
+    ASSERT_FALSE(forbidden_sub_delete.has_value());
+    EXPECT_EQ(forbidden_sub_delete.error(), blogalone::services::ForumError::forbidden);
+    ASSERT_TRUE(deleted_sub.has_value());
 }
 
 TEST_F(ForumServiceTest, AllowsOnlyOwnersToEditAndDeleteContent)

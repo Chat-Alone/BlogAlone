@@ -4,6 +4,7 @@
 #include "filters/session_filter.h"
 #include "http/api_error.h"
 #include "http/handler_guard.h"
+#include "http/json_body.h"
 #include "http/request_context.h"
 #include "http/session_context.h"
 #include "models/user.h"
@@ -50,29 +51,6 @@ using HttpCallback = std::function<void(const drogon::HttpResponsePtr&)>;
         return http::ErrorCode::not_found;
     }
     return http::ErrorCode::internal_error;
-}
-
-[[nodiscard]] std::shared_ptr<Json::Value> parse_json_body(const drogon::HttpRequestPtr& request)
-{
-    return request->getJsonObject();
-}
-
-// null is "not provided", not a type error: clients omit optional fields this way.
-[[nodiscard]] std::optional<std::string> json_string(
-    const Json::Value& object,
-    std::string_view key,
-    bool& type_error
-)
-{
-    const auto* value = object.find(key.data(), key.data() + key.size());
-    if(value == nullptr || value->isNull()) {
-        return std::nullopt;
-    }
-    if(!value->isString()) {
-        type_error = true;
-        return std::nullopt;
-    }
-    return value->asString();
 }
 
 [[nodiscard]] Json::Value user_to_json(const models::User& user)
@@ -160,7 +138,7 @@ void handle_register(
     const HttpCallback& callback
 )
 {
-    const auto body = parse_json_body(request);
+    const auto body = http::parse_json_body(request);
     if(!body) {
         callback(error_response(request, http::ErrorCode::invalid_argument, "invalid json body"));
         return;
@@ -168,9 +146,9 @@ void handle_register(
 
     bool type_error = false;
     services::RegisterRequest registration{
-        .username = json_string(*body, "username", type_error).value_or(""),
-        .email = json_string(*body, "email", type_error),
-        .password = json_string(*body, "password", type_error).value_or("")
+        .username = http::json_string(*body, "username", type_error).value_or(""),
+        .email = http::json_string(*body, "email", type_error),
+        .password = http::json_string(*body, "password", type_error).value_or("")
     };
     if(type_error) {
         callback(error_response(request, http::ErrorCode::invalid_argument, "invalid field type"));
@@ -208,7 +186,7 @@ void handle_login(
     const HttpCallback& callback
 )
 {
-    const auto body = parse_json_body(request);
+    const auto body = http::parse_json_body(request);
     if(!body) {
         callback(error_response(request, http::ErrorCode::invalid_argument, "invalid json body"));
         return;
@@ -216,8 +194,8 @@ void handle_login(
 
     bool type_error = false;
     services::LoginRequest login{
-        .username = json_string(*body, "username", type_error).value_or(""),
-        .password = json_string(*body, "password", type_error).value_or("")
+        .username = http::json_string(*body, "username", type_error).value_or(""),
+        .password = http::json_string(*body, "password", type_error).value_or("")
     };
     if(type_error) {
         callback(error_response(request, http::ErrorCode::invalid_argument, "invalid field type"));
@@ -308,7 +286,7 @@ void handle_patch_me(
         return;
     }
 
-    const auto body = parse_json_body(request);
+    const auto body = http::parse_json_body(request);
     if(!body) {
         callback(error_response(request, http::ErrorCode::invalid_argument, "invalid json body"));
         return;
@@ -316,8 +294,8 @@ void handle_patch_me(
 
     bool type_error = false;
     services::UpdateProfileRequest update{
-        .email = json_string(*body, "email", type_error),
-        .avatar_url = json_string(*body, "avatar_url", type_error)
+        .email = http::json_string(*body, "email", type_error),
+        .avatar_url = http::json_string(*body, "avatar_url", type_error)
     };
     if(type_error) {
         callback(error_response(request, http::ErrorCode::invalid_argument, "invalid field type"));

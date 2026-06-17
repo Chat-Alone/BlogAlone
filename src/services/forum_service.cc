@@ -13,6 +13,7 @@ namespace blogalone::services {
 namespace {
 
 constexpr std::int64_t kMinPage = 1;
+constexpr std::int64_t kMaxPage = 1'000'000;
 constexpr std::int64_t kDefaultPageSize = 20;
 constexpr std::int64_t kMaxPageSize = 50;
 constexpr std::size_t kMinForumSlugLength = 2;
@@ -74,6 +75,7 @@ class ImmediateTransaction {
 [[nodiscard]] bool valid_pagination(PaginationRequest pagination)
 {
     return pagination.page >= kMinPage
+        && pagination.page <= kMaxPage
         && pagination.page_size >= kMinPage
         && pagination.page_size <= kMaxPageSize;
 }
@@ -499,7 +501,12 @@ ForumResult<DeleteResult> ForumService::delete_post(
         return ForumError::forbidden;
     }
 
-    forum_repository_.soft_delete_post(post_id, now);
+    const auto db = forum_repository_.client();
+    const repositories::ForumRepository repository{db};
+    ImmediateTransaction transaction{db};
+    repository.soft_delete_post(post_id, now);
+    repository.refresh_thread_reply_summary(post->thread_id);
+    transaction.commit();
     return DeleteResult{};
 }
 
@@ -592,7 +599,12 @@ ForumResult<DeleteResult> ForumService::delete_sub_post(
         return ForumError::forbidden;
     }
 
-    forum_repository_.soft_delete_sub_post(sub_post_id, now);
+    const auto db = forum_repository_.client();
+    const repositories::ForumRepository repository{db};
+    ImmediateTransaction transaction{db};
+    repository.soft_delete_sub_post(sub_post_id, now);
+    repository.refresh_thread_reply_summary(sub_post->thread_id);
+    transaction.commit();
     return DeleteResult{};
 }
 

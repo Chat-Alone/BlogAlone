@@ -72,6 +72,7 @@ class ForumRepository {
         std::int64_t last_reply_user_id,
         std::int64_t last_reply_at
     ) const;
+    void refresh_thread_reply_summary(std::int64_t thread_id) const;
     void update_thread_content(
         std::int64_t thread_id,
         std::string_view title,

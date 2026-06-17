@@ -417,6 +417,45 @@ void ForumRepository::update_thread_last_reply(
     );
 }
 
+void ForumRepository::refresh_thread_reply_summary(std::int64_t thread_id) const
+{
+    const auto db = client();
+    const auto count_rows = db->execSqlSync(
+        "SELECT COUNT(*) AS count FROM posts WHERE thread_id = ? AND is_deleted = 0",
+        thread_id
+    );
+    const auto activity_rows = db->execSqlSync(
+        "SELECT activity_at, user_id FROM ("
+        "SELECT t.created_at AS activity_at, t.author_id AS user_id, 0 AS source_order, t.id AS sequence "
+        "FROM threads t WHERE t.id = ? AND t.is_deleted = 0 "
+        "UNION ALL "
+        "SELECT p.created_at AS activity_at, p.author_id AS user_id, 1 AS source_order, p.id AS sequence "
+        "FROM posts p JOIN threads t ON t.id = p.thread_id "
+        "WHERE p.thread_id = ? AND p.is_deleted = 0 AND t.is_deleted = 0 "
+        "UNION ALL "
+        "SELECT sp.created_at AS activity_at, sp.author_id AS user_id, 2 AS source_order, sp.id AS sequence "
+        "FROM sub_posts sp "
+        "JOIN posts p ON p.id = sp.post_id "
+        "JOIN threads t ON t.id = p.thread_id "
+        "WHERE p.thread_id = ? AND p.is_deleted = 0 AND sp.is_deleted = 0 AND t.is_deleted = 0"
+        ") ORDER BY activity_at DESC, source_order DESC, sequence DESC LIMIT 1",
+        thread_id,
+        thread_id,
+        thread_id
+    );
+    if(activity_rows.empty()) {
+        return;
+    }
+
+    db->execSqlSync(
+        "UPDATE threads SET reply_count = ?, last_reply_at = ?, last_reply_user_id = ? WHERE id = ?",
+        count_rows.at(0)["count"].as<std::int64_t>(),
+        activity_rows.at(0)["activity_at"].as<std::int64_t>(),
+        activity_rows.at(0)["user_id"].as<std::int64_t>(),
+        thread_id
+    );
+}
+
 void ForumRepository::update_thread_content(
     std::int64_t thread_id,
     std::string_view title,
