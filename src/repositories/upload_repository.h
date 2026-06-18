@@ -27,7 +27,6 @@ class UploadRepository {
         std::optional<std::int64_t> height,
         std::int64_t created_at
     ) const;
-    [[nodiscard]] bool ref_exists(std::int64_t owner_id, std::int64_t upload_id) const;
     void create_ref(std::int64_t owner_id, std::int64_t upload_id, std::int64_t created_at) const;
     [[nodiscard]] std::int64_t count_owner_refs_since(std::int64_t owner_id, std::int64_t since) const;
     [[nodiscard]] bool owner_has_upload_path(std::int64_t owner_id, std::string_view path) const;

@@ -288,13 +288,14 @@ std::string ForumService::render_and_collect_refs(
 }
 
 void ForumService::mark_refs_attached(
+    const repositories::UploadRepository& upload_repository,
     const std::vector<std::string>& referenced_paths,
     std::int64_t author_id,
     std::int64_t now
 ) const
 {
     for(const auto& path : referenced_paths) {
-        upload_repository_.mark_ref_attached(author_id, path, now);
+        upload_repository.mark_ref_attached(author_id, path, now);
     }
 }
 
@@ -375,6 +376,7 @@ ForumResult<models::Thread> ForumService::create_thread(
     const auto body_html = render_and_collect_refs(author_id, body_md, ref_paths);
     DbTransaction transaction{forum_repository_.client()};
     const repositories::ForumRepository repository{transaction.client()};
+    const repositories::UploadRepository upload_repository{transaction.client()};
     const auto thread_id = repository.create_thread(
         forum->id,
         author_id,
@@ -387,8 +389,8 @@ ForumResult<models::Thread> ForumService::create_thread(
     if(!thread.has_value()) {
         return ForumError::not_found;
     }
+    mark_refs_attached(upload_repository, ref_paths, author_id, now);
     transaction.commit();
-    mark_refs_attached(ref_paths, author_id, now);
     return *thread;
 }
 
@@ -416,14 +418,18 @@ ForumResult<models::Thread> ForumService::update_thread(
 
     std::vector<std::string> ref_paths;
     const auto body_html = render_and_collect_refs(user_id, body_md, ref_paths);
-    if(!forum_repository_.update_thread_content(thread_id, title, body_md, body_html, now)) {
+    DbTransaction transaction{forum_repository_.client()};
+    const repositories::ForumRepository repository{transaction.client()};
+    const repositories::UploadRepository upload_repository{transaction.client()};
+    if(!repository.update_thread_content(thread_id, title, body_md, body_html, now)) {
         return ForumError::not_found;
     }
-    const auto updated = forum_repository_.find_thread(thread_id);
+    const auto updated = repository.find_thread(thread_id);
     if(!updated.has_value()) {
         return ForumError::not_found;
     }
-    mark_refs_attached(ref_paths, user_id, now);
+    mark_refs_attached(upload_repository, ref_paths, user_id, now);
+    transaction.commit();
     return *updated;
 }
 
@@ -471,6 +477,7 @@ ForumResult<models::PostWithReplies> ForumService::create_post(
         try {
             DbTransaction transaction{forum_repository_.client()};
             const repositories::ForumRepository repository{transaction.client()};
+            const repositories::UploadRepository upload_repository{transaction.client()};
             if(!repository.find_thread(request.thread_id).has_value()) {
                 return ForumError::not_found;
             }
@@ -495,8 +502,8 @@ ForumResult<models::PostWithReplies> ForumService::create_post(
                 return ForumError::not_found;
             }
             auto result = post_with_replies(repository, *post);
+            mark_refs_attached(upload_repository, ref_paths, author_id, now);
             transaction.commit();
-            mark_refs_attached(ref_paths, author_id, now);
             return result;
         } catch(const drogon::orm::DrogonDbException& error) {
             if(!is_unique_violation(error) || attempt + 1 == kPostFloorRetryCount) {
@@ -533,15 +540,20 @@ ForumResult<models::PostWithReplies> ForumService::update_post(
 
     std::vector<std::string> ref_paths;
     const auto body_html = render_and_collect_refs(user_id, body_md, ref_paths);
-    if(!forum_repository_.update_post_content(post_id, body_md, body_html, now)) {
+    DbTransaction transaction{forum_repository_.client()};
+    const repositories::ForumRepository repository{transaction.client()};
+    const repositories::UploadRepository upload_repository{transaction.client()};
+    if(!repository.update_post_content(post_id, body_md, body_html, now)) {
         return ForumError::not_found;
     }
-    const auto updated = forum_repository_.find_post(post_id);
+    const auto updated = repository.find_post(post_id);
     if(!updated.has_value()) {
         return ForumError::not_found;
     }
-    mark_refs_attached(ref_paths, user_id, now);
-    return post_with_replies(forum_repository_, *updated);
+    auto result = post_with_replies(repository, *updated);
+    mark_refs_attached(upload_repository, ref_paths, user_id, now);
+    transaction.commit();
+    return result;
 }
 
 ForumResult<DeleteResult> ForumService::delete_post(
@@ -596,6 +608,7 @@ ForumResult<models::SubPost> ForumService::create_sub_post(
     const auto body_html = render_and_collect_refs(author_id, body_md, ref_paths);
     DbTransaction transaction{forum_repository_.client()};
     const repositories::ForumRepository repository{transaction.client()};
+    const repositories::UploadRepository upload_repository{transaction.client()};
     const auto post = repository.find_post(request.post_id);
     if(!post.has_value()) {
         return ForumError::not_found;
@@ -619,8 +632,8 @@ ForumResult<models::SubPost> ForumService::create_sub_post(
     if(!sub_post.has_value()) {
         return ForumError::not_found;
     }
+    mark_refs_attached(upload_repository, ref_paths, author_id, now);
     transaction.commit();
-    mark_refs_attached(ref_paths, author_id, now);
     return *sub_post;
 }
 
@@ -646,14 +659,18 @@ ForumResult<models::SubPost> ForumService::update_sub_post(
 
     std::vector<std::string> ref_paths;
     const auto body_html = render_and_collect_refs(user_id, body_md, ref_paths);
-    if(!forum_repository_.update_sub_post_content(sub_post_id, body_md, body_html, now)) {
+    DbTransaction transaction{forum_repository_.client()};
+    const repositories::ForumRepository repository{transaction.client()};
+    const repositories::UploadRepository upload_repository{transaction.client()};
+    if(!repository.update_sub_post_content(sub_post_id, body_md, body_html, now)) {
         return ForumError::not_found;
     }
-    const auto updated = forum_repository_.find_sub_post(sub_post_id);
+    const auto updated = repository.find_sub_post(sub_post_id);
     if(!updated.has_value()) {
         return ForumError::not_found;
     }
-    mark_refs_attached(ref_paths, user_id, now);
+    mark_refs_attached(upload_repository, ref_paths, user_id, now);
+    transaction.commit();
     return *updated;
 }
 

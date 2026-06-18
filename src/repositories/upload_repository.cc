@@ -85,17 +85,6 @@ std::optional<std::int64_t> UploadRepository::create_upload(
     return rows.at(0)["id"].as<std::int64_t>();
 }
 
-bool UploadRepository::ref_exists(std::int64_t owner_id, std::int64_t upload_id) const
-{
-    const auto db = client();
-    const auto rows = db->execSqlSync(
-        "SELECT 1 FROM upload_refs WHERE owner_id = ? AND upload_id = ?",
-        owner_id,
-        upload_id
-    );
-    return !rows.empty();
-}
-
 void UploadRepository::create_ref(
     std::int64_t owner_id,
     std::int64_t upload_id,

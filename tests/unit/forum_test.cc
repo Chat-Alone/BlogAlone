@@ -1,5 +1,6 @@
 #include "db/migrations.h"
 #include "repositories/forum_repository.h"
+#include "repositories/upload_repository.h"
 #include "repositories/user_repository.h"
 #include "services/forum_service.h"
 
@@ -83,7 +84,8 @@ class ForumServiceTest : public testing::Test {
         : client_{fresh_forum_test_client(workspace_.path() / "blogalone.db")}
         , service_{
             blogalone::repositories::ForumRepository{client_},
-            blogalone::repositories::UserRepository{client_}
+            blogalone::repositories::UserRepository{client_},
+            blogalone::repositories::UploadRepository{client_}
         }
     {
     }
@@ -121,6 +123,23 @@ class ForumServiceTest : public testing::Test {
             sort_order
         );
         return rows.at(0)["id"].as<std::int64_t>();
+    }
+
+    [[nodiscard]] std::string insert_upload_ref(std::int64_t owner_id, std::string path)
+    {
+        const auto rows = client_->execSqlSync(
+            "INSERT INTO uploads (sha256, path, mime, size, width, height, created_at) "
+            "VALUES (?, ?, 'image/png', 68, 1, 1, 1) RETURNING id",
+            "sha-" + path,
+            path
+        );
+        const auto upload_id = rows.at(0)["id"].as<std::int64_t>();
+        client_->execSqlSync(
+            "INSERT INTO upload_refs (owner_id, upload_id, created_at) VALUES (?, ?, 1)",
+            owner_id,
+            upload_id
+        );
+        return path;
     }
 
     [[nodiscard]] blogalone::services::ForumResult<blogalone::models::Thread> create_thread(
@@ -429,6 +448,44 @@ TEST_F(ForumServiceTest, RollsBackPostWhenThreadIsDeletedDuringCreate)
     EXPECT_EQ(rows.at(0)["is_deleted"].as<int>(), 0);
     EXPECT_EQ(rows.at(0)["reply_count"].as<std::int64_t>(), 0);
     EXPECT_EQ(rows.at(0)["post_count"].as<std::int64_t>(), 0);
+}
+
+TEST_F(ForumServiceTest, RollsBackThreadWhenUploadAttachFails)
+{
+    const auto author_id = insert_user("attach_failure_author");
+    static_cast<void>(insert_forum("general"));
+    const auto upload_path = insert_upload_ref(author_id, "2026/06/aa/x.png");
+    client_->execSqlSync(
+        "CREATE TRIGGER fail_upload_attach BEFORE UPDATE OF attached_at ON upload_refs "
+        "WHEN NEW.attached_at IS NOT NULL "
+        "BEGIN "
+        "SELECT RAISE(ABORT, 'attach failed'); "
+        "END;"
+    );
+
+    EXPECT_THROW(
+        static_cast<void>(service_.create_thread(
+            author_id,
+            blogalone::services::CreateThreadRequest{
+                .forum_slug = "general",
+                .title = "Thread with image",
+                .body_md = "![img](/uploads/" + upload_path + ")"
+            },
+            30
+        )),
+        drogon::orm::DrogonDbException
+    );
+
+    const auto rows = client_->execSqlSync(
+        "SELECT "
+        "(SELECT COUNT(*) FROM threads WHERE author_id = ?) AS thread_count, "
+        "(SELECT attached_at FROM upload_refs WHERE owner_id = ?) AS attached_at",
+        author_id,
+        author_id
+    );
+    ASSERT_EQ(rows.size(), 1);
+    EXPECT_EQ(rows.at(0)["thread_count"].as<std::int64_t>(), 0);
+    EXPECT_TRUE(rows.at(0)["attached_at"].isNull());
 }
 
 TEST_F(ForumServiceTest, CreatesSubPostsWithoutIncrementingReplyCount)

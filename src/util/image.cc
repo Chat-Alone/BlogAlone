@@ -1,21 +1,36 @@
-#include "util/image.h"
-
-#include <spng.h>
-#include <jpeglib.h>
-#include <webp/decode.h>
-
 #ifdef _MSC_VER
 #pragma warning(push)
 #pragma warning(disable: 4324 4611)
 #endif
 
+#include "util/image.h"
+
+#include <jpeglib.h>
+#include <spng.h>
+#include <webp/decode.h>
+
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif
+
 #include <algorithm>
 #include <array>
+#include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <setjmp.h>
+#include <vector>
 
 namespace blogalone::util {
 namespace {
+
+constexpr std::size_t kMaxDecodedImageBytes = 128 * 1024 * 1024;
+
+struct SpngContextDeleter {
+    void operator()(spng_ctx* ctx) const { spng_ctx_free(ctx); }
+};
+
+using SpngContextPtr = std::unique_ptr<spng_ctx, SpngContextDeleter>;
 
 [[nodiscard]] bool has_prefix(std::span<const unsigned char> data, std::span<const unsigned char> prefix)
 {
@@ -192,30 +207,30 @@ namespace {
 
 [[nodiscard]] bool validate_png_decode(std::span<const unsigned char> data)
 {
-    spng_ctx* ctx = spng_ctx_new(0);
-    if(ctx == nullptr) {
+    SpngContextPtr ctx{spng_ctx_new(0)};
+    if(!ctx) {
         return false;
     }
-    const int set_buf_result = spng_set_png_buffer(ctx, data.data(), data.size());
-    if(set_buf_result != SPNG_OK) {
-        spng_ctx_free(ctx);
+    if(spng_set_png_buffer(ctx.get(), data.data(), data.size()) != SPNG_OK) {
         return false;
     }
     spng_ihdr ihdr{};
-    const int get_ihdr_result = spng_get_ihdr(ctx, &ihdr);
-    if(get_ihdr_result != SPNG_OK) {
-        spng_ctx_free(ctx);
+    if(spng_get_ihdr(ctx.get(), &ihdr) != SPNG_OK) {
         return false;
     }
     size_t image_size = 0;
-    const int decode_result = spng_decoded_image_size(ctx, SPNG_FMT_RGBA8, &image_size);
-    if(decode_result != SPNG_OK) {
-        spng_ctx_free(ctx);
+    if(spng_decoded_image_size(ctx.get(), SPNG_FMT_RGBA8, &image_size) != SPNG_OK
+        || image_size == 0 || image_size > kMaxDecodedImageBytes) {
         return false;
     }
-    spng_ctx_free(ctx);
-    return true;
+    std::vector<unsigned char> output(image_size);
+    return spng_decode_image(ctx.get(), output.data(), output.size(), SPNG_FMT_RGBA8, 0) == SPNG_OK;
 }
+
+#ifdef _MSC_VER
+#pragma warning(push)
+#pragma warning(disable: 4324 4611)
+#endif
 
 struct JpegErrorManager {
     jpeg_error_mgr pub;
@@ -230,8 +245,8 @@ struct JpegErrorManager {
 
 [[nodiscard]] bool validate_jpeg_decode(std::span<const unsigned char> data)
 {
-    JpegErrorManager error_mgr;
-    jpeg_decompress_struct cinfo;
+    JpegErrorManager error_mgr{};
+    jpeg_decompress_struct cinfo{};
     cinfo.err = jpeg_std_error(&error_mgr.pub);
     error_mgr.pub.error_exit = jpeg_error_exit;
 
@@ -250,9 +265,31 @@ struct JpegErrorManager {
         jpeg_destroy_decompress(&cinfo);
         return false;
     }
+    const auto row_stride = static_cast<std::size_t>(cinfo.output_width)
+        * static_cast<std::size_t>(cinfo.output_components);
+    if(row_stride == 0 || row_stride > kMaxDecodedImageBytes) {
+        jpeg_destroy_decompress(&cinfo);
+        return false;
+    }
+    std::vector<unsigned char> scanline(row_stride);
+    while(cinfo.output_scanline < cinfo.output_height) {
+        JSAMPROW row = scanline.data();
+        if(jpeg_read_scanlines(&cinfo, &row, 1) != 1) {
+            jpeg_destroy_decompress(&cinfo);
+            return false;
+        }
+    }
+    if(!jpeg_finish_decompress(&cinfo)) {
+        jpeg_destroy_decompress(&cinfo);
+        return false;
+    }
     jpeg_destroy_decompress(&cinfo);
     return true;
 }
+
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif
 
 [[nodiscard]] bool validate_webp_decode(std::span<const unsigned char> data)
 {
@@ -269,19 +306,94 @@ struct JpegErrorManager {
     return status == VP8_STATUS_OK;
 }
 
-[[nodiscard]] bool validate_gif_structure(std::span<const unsigned char> data)
+[[nodiscard]] bool skip_gif_color_table(
+    std::span<const unsigned char> data,
+    std::size_t& index,
+    unsigned char packed
+)
 {
-    if(data.size() < 10) {
+    if((packed & 0x80) == 0) {
+        return true;
+    }
+    const auto color_table_size = 3ULL * (1ULL << ((packed & 0x07) + 1));
+    if(color_table_size > data.size() - index) {
         return false;
     }
-    constexpr std::array<unsigned char, 2> trailer{0x3b};
-    for(std::size_t i = data.size(); i > 0; --i) {
-        if(data[i - 1] == 0x3b) {
+    index += static_cast<std::size_t>(color_table_size);
+    return true;
+}
+
+[[nodiscard]] bool skip_gif_sub_blocks(std::span<const unsigned char> data, std::size_t& index)
+{
+    while(index < data.size()) {
+        const auto block_size = static_cast<std::size_t>(data[index]);
+        ++index;
+        if(block_size == 0) {
             return true;
         }
-        if(data[i - 1] != 0x00) {
+        if(block_size > data.size() - index) {
+            return false;
+        }
+        index += block_size;
+    }
+    return false;
+}
+
+[[nodiscard]] bool validate_gif_structure(std::span<const unsigned char> data)
+{
+    constexpr std::array<unsigned char, 6> gif87{'G', 'I', 'F', '8', '7', 'a'};
+    constexpr std::array<unsigned char, 6> gif89{'G', 'I', 'F', '8', '9', 'a'};
+    if(data.size() < 14 || (!has_prefix(data, gif87) && !has_prefix(data, gif89))) {
+        return false;
+    }
+
+    std::size_t index = 13;
+    if(!skip_gif_color_table(data, index, data[10])) {
+        return false;
+    }
+
+    bool saw_image = false;
+    while(index < data.size()) {
+        const auto block_type = data[index];
+        ++index;
+        if(block_type == 0x3b) {
+            return saw_image && index == data.size();
+        }
+        if(block_type == 0x21) {
+            if(index >= data.size()) {
+                return false;
+            }
+            ++index;
+            if(!skip_gif_sub_blocks(data, index)) {
+                return false;
+            }
+            continue;
+        }
+        if(block_type == 0x2c) {
+            if(data.size() - index < 9) {
+                return false;
+            }
+            const auto width = read_le16(data, index + 4);
+            const auto height = read_le16(data, index + 6);
+            const auto packed = data[index + 8];
+            index += 9;
+            if(width == 0 || height == 0 || !skip_gif_color_table(data, index, packed)) {
+                return false;
+            }
+            if(index >= data.size()) {
+                return false;
+            }
+            ++index;
+            if(!skip_gif_sub_blocks(data, index)) {
+                return false;
+            }
+            saw_image = true;
+            continue;
+        }
+        if(block_type == 0x00) {
             break;
         }
+        return false;
     }
     return false;
 }
@@ -348,7 +460,3 @@ std::string_view extension_for(ImageFormat format)
 }
 
 }
-
-#ifdef _MSC_VER
-#pragma warning(pop)
-#endif

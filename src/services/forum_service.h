@@ -170,6 +170,7 @@ class ForumService {
     ) const;
 
     void mark_refs_attached(
+        const repositories::UploadRepository& upload_repository,
         const std::vector<std::string>& referenced_paths,
         std::int64_t author_id,
         std::int64_t now
