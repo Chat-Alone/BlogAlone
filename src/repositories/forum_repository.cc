@@ -328,7 +328,7 @@ std::int64_t ForumRepository::create_thread(
     return rows.at(0)["id"].as<std::int64_t>();
 }
 
-std::int64_t ForumRepository::create_post(
+std::optional<std::int64_t> ForumRepository::create_post(
     std::int64_t thread_id,
     std::int64_t author_id,
     std::int64_t floor_no,
@@ -339,19 +339,25 @@ std::int64_t ForumRepository::create_post(
 {
     const auto rows = client()->execSqlSync(
         "INSERT INTO posts (thread_id, author_id, floor_no, body_md, body_html, created_at, updated_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id",
+        "SELECT ?, ?, ?, ?, ?, ?, ? "
+        "WHERE EXISTS (SELECT 1 FROM threads WHERE id = ? AND is_deleted = 0) "
+        "RETURNING id",
         thread_id,
         author_id,
         floor_no,
         std::string{body_md},
         std::string{body_html},
         now,
-        now
+        now,
+        thread_id
     );
+    if(rows.empty()) {
+        return std::nullopt;
+    }
     return rows.at(0)["id"].as<std::int64_t>();
 }
 
-std::int64_t ForumRepository::create_sub_post(
+std::optional<std::int64_t> ForumRepository::create_sub_post(
     std::int64_t post_id,
     std::int64_t author_id,
     std::string_view body_md,
@@ -363,58 +369,85 @@ std::int64_t ForumRepository::create_sub_post(
     if(reply_to_user_id.has_value()) {
         const auto rows = client()->execSqlSync(
             "INSERT INTO sub_posts (post_id, author_id, body_md, body_html, reply_to_user_id, "
-            "created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id",
+            "created_at, updated_at) "
+            "SELECT ?, ?, ?, ?, ?, ?, ? "
+            "WHERE EXISTS ("
+            "SELECT 1 FROM posts p JOIN threads t ON t.id = p.thread_id "
+            "WHERE p.id = ? AND p.is_deleted = 0 AND t.is_deleted = 0"
+            ") RETURNING id",
             post_id,
             author_id,
             std::string{body_md},
             std::string{body_html},
             *reply_to_user_id,
             now,
-            now
+            now,
+            post_id
         );
+        if(rows.empty()) {
+            return std::nullopt;
+        }
         return rows.at(0)["id"].as<std::int64_t>();
     }
 
     const auto rows = client()->execSqlSync(
         "INSERT INTO sub_posts (post_id, author_id, body_md, body_html, reply_to_user_id, "
-        "created_at, updated_at) VALUES (?, ?, ?, ?, NULL, ?, ?) RETURNING id",
+        "created_at, updated_at) "
+        "SELECT ?, ?, ?, ?, NULL, ?, ? "
+        "WHERE EXISTS ("
+        "SELECT 1 FROM posts p JOIN threads t ON t.id = p.thread_id "
+        "WHERE p.id = ? AND p.is_deleted = 0 AND t.is_deleted = 0"
+        ") RETURNING id",
         post_id,
         author_id,
         std::string{body_md},
         std::string{body_html},
         now,
-        now
+        now,
+        post_id
     );
+    if(rows.empty()) {
+        return std::nullopt;
+    }
     return rows.at(0)["id"].as<std::int64_t>();
 }
 
-void ForumRepository::increment_thread_reply_count(
+bool ForumRepository::increment_thread_reply_count(
     std::int64_t thread_id,
     std::int64_t last_reply_user_id,
     std::int64_t last_reply_at
 ) const
 {
-    client()->execSqlSync(
+    const auto result = client()->execSqlSync(
         "UPDATE threads SET reply_count = reply_count + 1, last_reply_at = ?, "
-        "last_reply_user_id = ? WHERE id = ?",
+        "last_reply_user_id = ? WHERE id = ? AND is_deleted = 0",
         last_reply_at,
         last_reply_user_id,
         thread_id
     );
+    return result.affectedRows() == 1;
 }
 
-void ForumRepository::update_thread_last_reply(
+bool ForumRepository::update_thread_last_reply(
     std::int64_t thread_id,
+    std::int64_t post_id,
     std::int64_t last_reply_user_id,
     std::int64_t last_reply_at
 ) const
 {
-    client()->execSqlSync(
-        "UPDATE threads SET last_reply_at = ?, last_reply_user_id = ? WHERE id = ?",
+    const auto result = client()->execSqlSync(
+        "UPDATE threads SET last_reply_at = ?, last_reply_user_id = ? "
+        "WHERE id = ? AND is_deleted = 0 "
+        "AND EXISTS ("
+        "SELECT 1 FROM posts WHERE id = ? AND thread_id = ? AND is_deleted = 0"
+        ")",
         last_reply_at,
         last_reply_user_id,
+        thread_id,
+        post_id,
         thread_id
     );
+    return result.affectedRows() == 1;
 }
 
 void ForumRepository::refresh_thread_reply_summary(std::int64_t thread_id) const

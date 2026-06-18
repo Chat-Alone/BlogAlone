@@ -227,7 +227,7 @@ CREATE INDEX idx_upload_refs_attached ON upload_refs(attached_at);
 
 发帖事务包含插入`threads`、设置`last_reply_at`为发帖时间。Markdown渲染和HTML清理在进入事务前完成，事务只保存已处理文本。管理员后台操作才写入`audit_log`。
 
-回帖事务必须使用`BEGIN IMMEDIATE`。服务层在同一事务内读取当前最大`floor_no`、插入`posts`、更新`threads.reply_count`、`threads.last_reply_at`和`threads.last_reply_user_id`。`UNIQUE(thread_id,floor_no)`是并发兜底，撞号时重试一次，仍失败则返回`409 conflict`。
+事务通过`db->newTransaction()`独占连接,并发兜底完全依赖`UNIQUE(thread_id, floor_no)`+重试。
 
 楼中楼回复事务插入`sub_posts`，更新主帖`last_reply_at`和`last_reply_user_id`。`reply_count`只统计楼层回复，不统计楼中楼，避免列表页数字含义混乱。
 

@@ -2,6 +2,7 @@
 
 #include "models/forum.h"
 #include "repositories/forum_repository.h"
+#include "repositories/user_repository.h"
 
 #include <cstdint>
 #include <optional>
@@ -12,9 +13,11 @@
 
 namespace blogalone::services {
 
+inline constexpr std::int64_t kDefaultPageSize = 20;
+
 struct PaginationRequest {
     std::int64_t page{1};
-    std::int64_t page_size{20};
+    std::int64_t page_size{kDefaultPageSize};
 };
 
 template <typename T>
@@ -95,7 +98,8 @@ class ForumResult {
 class ForumService {
   public:
     explicit ForumService(
-        repositories::ForumRepository forum_repository = repositories::ForumRepository{}
+        repositories::ForumRepository forum_repository = repositories::ForumRepository{},
+        repositories::UserRepository user_repository = repositories::UserRepository{}
     );
 
     [[nodiscard]] std::vector<models::Forum> list_forums() const;
@@ -158,6 +162,7 @@ class ForumService {
 
   private:
     repositories::ForumRepository forum_repository_;
+    repositories::UserRepository user_repository_;
 };
 
 }

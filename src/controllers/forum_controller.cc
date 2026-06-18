@@ -99,7 +99,7 @@ using HttpCallback = std::function<void(const drogon::HttpResponsePtr&)>;
 {
     return services::PaginationRequest{
         .page = query_int64(request, "page", 1),
-        .page_size = query_int64(request, "page_size", 20)
+        .page_size = query_int64(request, "page_size", services::kDefaultPageSize)
     };
 }
 

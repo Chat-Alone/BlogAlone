@@ -1,19 +1,25 @@
 #include "db/migrations.h"
 #include "repositories/forum_repository.h"
+#include "repositories/user_repository.h"
 #include "services/forum_service.h"
 
 #include <drogon/drogon.h>
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <barrier>
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
 #include <limits>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <thread>
 #include <utility>
+#include <vector>
 
 namespace {
 
@@ -75,12 +81,28 @@ class ForumServiceTest : public testing::Test {
   protected:
     ForumServiceTest()
         : client_{fresh_forum_test_client(workspace_.path() / "blogalone.db")}
-        , service_{blogalone::repositories::ForumRepository{client_}}
+        , service_{
+            blogalone::repositories::ForumRepository{client_},
+            blogalone::repositories::UserRepository{client_}
+        }
     {
     }
 
-    [[nodiscard]] std::int64_t insert_user(std::string username)
+    [[nodiscard]] std::int64_t insert_user(
+        std::string username,
+        std::optional<std::int64_t> banned_until = std::nullopt
+    )
     {
+        if(banned_until.has_value()) {
+            const auto rows = client_->execSqlSync(
+                "INSERT INTO users (username, email, pwd_hash, banned_until, created_at, updated_at) "
+                "VALUES (?, NULL, 'hash', ?, 1, 1) RETURNING id",
+                std::move(username),
+                *banned_until
+            );
+            return rows.at(0)["id"].as<std::int64_t>();
+        }
+
         const auto rows = client_->execSqlSync(
             "INSERT INTO users (username, email, pwd_hash, created_at, updated_at) "
             "VALUES (?, NULL, 'hash', 1, 1) RETURNING id",
@@ -283,6 +305,61 @@ TEST_F(ForumServiceTest, CreatesPostsWithSequentialFloorsAndReplyCount)
     EXPECT_EQ(detail->posts.items.at(1).post.id, second->post.id);
 }
 
+TEST_F(ForumServiceTest, CreatesConcurrentPostsWithUniqueFloors)
+{
+    const auto author_id = insert_user("concurrent_author");
+    static_cast<void>(insert_forum("general"));
+    const auto thread = create_thread(author_id);
+    ASSERT_TRUE(thread.has_value());
+
+    constexpr int kReplyCount = 12;
+    std::barrier<> start{kReplyCount};
+    std::mutex results_mutex;
+    std::vector<std::int64_t> floors;
+    std::vector<blogalone::services::ForumError> errors;
+    std::vector<std::thread> workers;
+    workers.reserve(kReplyCount);
+
+    for(int index = 0; index < kReplyCount; ++index) {
+        workers.emplace_back([&, index]() {
+            start.arrive_and_wait();
+            const auto result = service_.create_post(
+                author_id,
+                blogalone::services::CreatePostRequest{
+                    .thread_id = thread->id,
+                    .body_md = "concurrent reply " + std::to_string(index)
+                },
+                100 + index
+            );
+
+            const std::scoped_lock lock{results_mutex};
+            if(result.has_value()) {
+                floors.push_back(result->post.floor_no);
+            } else {
+                errors.push_back(result.error());
+            }
+        });
+    }
+
+    for(auto& worker : workers) {
+        worker.join();
+    }
+    std::ranges::sort(floors);
+
+    EXPECT_TRUE(errors.empty());
+    ASSERT_EQ(floors.size(), kReplyCount);
+    for(std::int64_t index = 0; index < kReplyCount; ++index) {
+        EXPECT_EQ(floors.at(static_cast<std::size_t>(index)), index + 1);
+    }
+
+    const auto detail = service_.get_thread(
+        thread->id,
+        blogalone::services::PaginationRequest{.page = 1, .page_size = 20}
+    );
+    ASSERT_TRUE(detail.has_value());
+    EXPECT_EQ(detail->thread.reply_count, kReplyCount);
+}
+
 TEST_F(ForumServiceTest, ReturnsConflictWhenPostFloorCollisionPersists)
 {
     const auto author_id = insert_user("conflict_author");
@@ -315,6 +392,43 @@ TEST_F(ForumServiceTest, ReturnsConflictWhenPostFloorCollisionPersists)
     ASSERT_FALSE(result.has_value());
     EXPECT_EQ(result.error(), blogalone::services::ForumError::conflict);
     EXPECT_EQ(rows.at(0)["count"].as<std::int64_t>(), 0);
+}
+
+TEST_F(ForumServiceTest, RollsBackPostWhenThreadIsDeletedDuringCreate)
+{
+    const auto author_id = insert_user("thread_race_author");
+    static_cast<void>(insert_forum("general"));
+    const auto thread = create_thread(author_id);
+    ASSERT_TRUE(thread.has_value());
+    client_->execSqlSync(
+        "CREATE TRIGGER delete_thread_before_reply BEFORE INSERT ON posts "
+        "WHEN NEW.body_md = 'race reply' "
+        "BEGIN "
+        "UPDATE threads SET is_deleted = 1 WHERE id = NEW.thread_id; "
+        "END;"
+    );
+
+    const auto result = service_.create_post(
+        author_id,
+        blogalone::services::CreatePostRequest{
+            .thread_id = thread->id,
+            .body_md = "race reply"
+        },
+        30
+    );
+    const auto rows = client_->execSqlSync(
+        "SELECT t.is_deleted, t.reply_count, COUNT(p.id) AS post_count "
+        "FROM threads t LEFT JOIN posts p ON p.thread_id = t.id "
+        "WHERE t.id = ? GROUP BY t.id",
+        thread->id
+    );
+
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error(), blogalone::services::ForumError::not_found);
+    ASSERT_EQ(rows.size(), 1);
+    EXPECT_EQ(rows.at(0)["is_deleted"].as<int>(), 0);
+    EXPECT_EQ(rows.at(0)["reply_count"].as<std::int64_t>(), 0);
+    EXPECT_EQ(rows.at(0)["post_count"].as<std::int64_t>(), 0);
 }
 
 TEST_F(ForumServiceTest, CreatesSubPostsWithoutIncrementingReplyCount)
@@ -359,6 +473,57 @@ TEST_F(ForumServiceTest, CreatesSubPostsWithoutIncrementingReplyCount)
     ASSERT_EQ(detail->posts.items.size(), 1);
     ASSERT_EQ(detail->posts.items.at(0).sub_posts.size(), 1);
     EXPECT_EQ(detail->posts.items.at(0).sub_posts.at(0).id, sub_post->id);
+}
+
+TEST_F(ForumServiceTest, RollsBackSubPostWhenPostIsDeletedDuringCreate)
+{
+    const auto author_id = insert_user("sub_race_author");
+    const auto replier_id = insert_user("sub_race_replier");
+    static_cast<void>(insert_forum("general"));
+    const auto thread = create_thread(author_id);
+    ASSERT_TRUE(thread.has_value());
+    const auto post = service_.create_post(
+        author_id,
+        blogalone::services::CreatePostRequest{
+            .thread_id = thread->id,
+            .body_md = "floor reply"
+        },
+        40
+    );
+    ASSERT_TRUE(post.has_value());
+    client_->execSqlSync(
+        "CREATE TRIGGER delete_post_before_sub_reply BEFORE INSERT ON sub_posts "
+        "WHEN NEW.body_md = 'race nested' "
+        "BEGIN "
+        "UPDATE posts SET is_deleted = 1 WHERE id = NEW.post_id; "
+        "END;"
+    );
+
+    const auto result = service_.create_sub_post(
+        replier_id,
+        blogalone::services::CreateSubPostRequest{
+            .post_id = post->post.id,
+            .body_md = "race nested",
+            .reply_to_user_id = author_id
+        },
+        41
+    );
+    const auto rows = client_->execSqlSync(
+        "SELECT p.is_deleted, t.reply_count, t.last_reply_at, COUNT(sp.id) AS sub_post_count "
+        "FROM posts p "
+        "JOIN threads t ON t.id = p.thread_id "
+        "LEFT JOIN sub_posts sp ON sp.post_id = p.id "
+        "WHERE p.id = ? GROUP BY p.id",
+        post->post.id
+    );
+
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error(), blogalone::services::ForumError::not_found);
+    ASSERT_EQ(rows.size(), 1);
+    EXPECT_EQ(rows.at(0)["is_deleted"].as<int>(), 0);
+    EXPECT_EQ(rows.at(0)["reply_count"].as<std::int64_t>(), 1);
+    EXPECT_EQ(rows.at(0)["last_reply_at"].as<std::int64_t>(), 40);
+    EXPECT_EQ(rows.at(0)["sub_post_count"].as<std::int64_t>(), 0);
 }
 
 TEST_F(ForumServiceTest, RejectsInvalidForumAndBodyInputs)
@@ -435,6 +600,70 @@ TEST_F(ForumServiceTest, RejectsInvalidForumAndBodyInputs)
     EXPECT_EQ(oversized_post.error(), blogalone::services::ForumError::invalid_input);
     EXPECT_EQ(invalid_reply_target.error(), blogalone::services::ForumError::invalid_input);
     EXPECT_EQ(oversized_sub_post.error(), blogalone::services::ForumError::invalid_input);
+}
+
+TEST_F(ForumServiceTest, RejectsBannedAuthorsForCreates)
+{
+    const auto author_id = insert_user("active_author");
+    const auto banned_id = insert_user("banned_author", 1'000);
+    static_cast<void>(insert_forum("general"));
+    const auto thread = create_thread(author_id);
+    ASSERT_TRUE(thread.has_value());
+    const auto post = service_.create_post(
+        author_id,
+        blogalone::services::CreatePostRequest{
+            .thread_id = thread->id,
+            .body_md = "visible reply"
+        },
+        30
+    );
+    ASSERT_TRUE(post.has_value());
+
+    const auto banned_thread = service_.create_thread(
+        banned_id,
+        blogalone::services::CreateThreadRequest{
+            .forum_slug = "general",
+            .title = "Blocked thread",
+            .body_md = "blocked body"
+        },
+        40
+    );
+    const auto banned_post = service_.create_post(
+        banned_id,
+        blogalone::services::CreatePostRequest{
+            .thread_id = thread->id,
+            .body_md = "blocked reply"
+        },
+        41
+    );
+    const auto banned_sub_post = service_.create_sub_post(
+        banned_id,
+        blogalone::services::CreateSubPostRequest{
+            .post_id = post->post.id,
+            .body_md = "blocked nested reply",
+            .reply_to_user_id = author_id
+        },
+        42
+    );
+    const auto rows = client_->execSqlSync(
+        "SELECT "
+        "(SELECT COUNT(*) FROM threads WHERE author_id = ?) AS thread_count, "
+        "(SELECT COUNT(*) FROM posts WHERE author_id = ?) AS post_count, "
+        "(SELECT COUNT(*) FROM sub_posts WHERE author_id = ?) AS sub_post_count",
+        banned_id,
+        banned_id,
+        banned_id
+    );
+
+    ASSERT_FALSE(banned_thread.has_value());
+    ASSERT_FALSE(banned_post.has_value());
+    ASSERT_FALSE(banned_sub_post.has_value());
+    EXPECT_EQ(banned_thread.error(), blogalone::services::ForumError::forbidden);
+    EXPECT_EQ(banned_post.error(), blogalone::services::ForumError::forbidden);
+    EXPECT_EQ(banned_sub_post.error(), blogalone::services::ForumError::forbidden);
+    EXPECT_EQ(rows.at(0)["thread_count"].as<std::int64_t>(), 0);
+    EXPECT_EQ(rows.at(0)["post_count"].as<std::int64_t>(), 0);
+    EXPECT_EQ(rows.at(0)["sub_post_count"].as<std::int64_t>(), 0);
 }
 
 TEST_F(ForumServiceTest, DeletingPostsRecomputesReplyCountAndLastReply)

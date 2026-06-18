@@ -5,7 +5,10 @@
 #include <algorithm>
 #include <cctype>
 #include <cstddef>
+#include <future>
+#include <memory>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <utility>
 
@@ -14,52 +17,54 @@ namespace {
 
 constexpr std::int64_t kMinPage = 1;
 constexpr std::int64_t kMaxPage = 1'000'000;
-constexpr std::int64_t kDefaultPageSize = 20;
 constexpr std::int64_t kMaxPageSize = 50;
 constexpr std::size_t kMinForumSlugLength = 2;
 constexpr std::size_t kMaxForumSlugLength = 32;
 constexpr std::size_t kMaxThreadTitleLength = 80;
 constexpr std::size_t kMaxBodyLength = 20'000;
 constexpr std::size_t kMaxSubPostBodyLength = 2'000;
-constexpr int kPostFloorRetryCount = 2;
-
-class ImmediateTransaction {
+constexpr int kPostFloorRetryCount = 3;
+class DbTransaction {
   public:
-    explicit ImmediateTransaction(drogon::orm::DbClientPtr db)
-        : db_{std::move(db)}
+    explicit DbTransaction(const drogon::orm::DbClientPtr& db)
+        : commit_promise_{std::make_shared<std::promise<bool>>()}
+        , commit_result_{commit_promise_->get_future()}
+        , transaction_{db->newTransaction([promise = commit_promise_](bool committed) {
+            promise->set_value(committed);
+        })}
     {
-        db_->execSqlSync("BEGIN IMMEDIATE;");
-        active_ = true;
     }
 
-    ImmediateTransaction(const ImmediateTransaction&) = delete;
-    ImmediateTransaction& operator=(const ImmediateTransaction&) = delete;
+    DbTransaction(const DbTransaction&) = delete;
+    DbTransaction& operator=(const DbTransaction&) = delete;
 
-    ~ImmediateTransaction()
+    ~DbTransaction()
     {
-        if(active_) {
-            rollback();
+        if(transaction_) {
+            transaction_->rollback();
         }
+    }
+
+    // Hand out a non-owning view: Drogon commits a transaction only when its
+    // last shared_ptr reference is destroyed, so callers must not keep the
+    // transaction alive past commit().
+    [[nodiscard]] drogon::orm::DbClientPtr client() const
+    {
+        return {transaction_.get(), [](drogon::orm::DbClient*) {}};
     }
 
     void commit()
     {
-        db_->execSqlSync("COMMIT;");
-        active_ = false;
+        transaction_.reset();
+        if(!commit_result_.get()) {
+            throw std::runtime_error{"database transaction commit failed"};
+        }
     }
 
   private:
-    void rollback() noexcept
-    {
-        try {
-            db_->execSqlSync("ROLLBACK;");
-        } catch(...) {
-        }
-        active_ = false;
-    }
-
-    drogon::orm::DbClientPtr db_;
-    bool active_{};
+    std::shared_ptr<std::promise<bool>> commit_promise_;
+    std::future<bool> commit_result_;
+    std::shared_ptr<drogon::orm::Transaction> transaction_;
 };
 
 [[nodiscard]] std::string trim(std::string_view value)
@@ -205,6 +210,27 @@ class ImmediateTransaction {
     return dynamic_cast<const drogon::orm::UniqueViolation*>(&error.base()) != nullptr;
 }
 
+[[nodiscard]] bool is_user_banned(const models::User& user, std::int64_t now)
+{
+    return user.banned_until.has_value() && *user.banned_until > now;
+}
+
+[[nodiscard]] std::optional<ForumError> author_write_error(
+    const repositories::UserRepository& user_repository,
+    std::int64_t author_id,
+    std::int64_t now
+)
+{
+    const auto author = user_repository.find_by_id(author_id);
+    if(!author.has_value()) {
+        return ForumError::not_found;
+    }
+    if(is_user_banned(*author, now)) {
+        return ForumError::forbidden;
+    }
+    return std::nullopt;
+}
+
 [[nodiscard]] Page<models::PostWithReplies> posts_page(
     const repositories::ForumRepository& repository,
     std::int64_t thread_id,
@@ -259,8 +285,12 @@ std::string_view to_string(ForumError error)
     return "invalid_input";
 }
 
-ForumService::ForumService(repositories::ForumRepository forum_repository)
+ForumService::ForumService(
+    repositories::ForumRepository forum_repository,
+    repositories::UserRepository user_repository
+)
     : forum_repository_{std::move(forum_repository)}
+    , user_repository_{std::move(user_repository)}
 {
 }
 
@@ -328,15 +358,17 @@ ForumResult<models::Thread> ForumService::create_thread(
         || !is_valid_body(body_md, kMaxBodyLength)) {
         return ForumError::invalid_input;
     }
+    if(const auto error = author_write_error(user_repository_, author_id, now)) {
+        return *error;
+    }
 
     const auto forum = forum_repository_.find_forum_by_slug(forum_slug);
     if(!forum.has_value()) {
         return ForumError::not_found;
     }
 
-    const auto db = forum_repository_.client();
-    const repositories::ForumRepository repository{db};
-    ImmediateTransaction transaction{db};
+    DbTransaction transaction{forum_repository_.client()};
+    const repositories::ForumRepository repository{transaction.client()};
     const auto thread_id = repository.create_thread(
         forum->id,
         author_id,
@@ -345,12 +377,11 @@ ForumResult<models::Thread> ForumService::create_thread(
         render_basic_html(body_md),
         now
     );
-    transaction.commit();
-
-    auto thread = forum_repository_.find_thread(thread_id);
+    auto thread = repository.find_thread(thread_id);
     if(!thread.has_value()) {
         return ForumError::not_found;
     }
+    transaction.commit();
     return *thread;
 }
 
@@ -416,15 +447,17 @@ ForumResult<models::PostWithReplies> ForumService::create_post(
     if(author_id <= 0 || request.thread_id <= 0 || !is_valid_body(body_md, kMaxBodyLength)) {
         return ForumError::invalid_input;
     }
-    if(!forum_repository_.find_thread(request.thread_id).has_value()) {
-        return ForumError::not_found;
+    if(const auto error = author_write_error(user_repository_, author_id, now)) {
+        return *error;
     }
 
     for(int attempt = 0; attempt < kPostFloorRetryCount; ++attempt) {
         try {
-            const auto db = forum_repository_.client();
-            const repositories::ForumRepository repository{db};
-            ImmediateTransaction transaction{db};
+            DbTransaction transaction{forum_repository_.client()};
+            const repositories::ForumRepository repository{transaction.client()};
+            if(!repository.find_thread(request.thread_id).has_value()) {
+                return ForumError::not_found;
+            }
             const auto floor_no = repository.next_floor_no(request.thread_id);
             const auto post_id = repository.create_post(
                 request.thread_id,
@@ -434,14 +467,20 @@ ForumResult<models::PostWithReplies> ForumService::create_post(
                 render_basic_html(body_md),
                 now
             );
-            repository.increment_thread_reply_count(request.thread_id, author_id, now);
-            transaction.commit();
+            if(!post_id.has_value()) {
+                return ForumError::not_found;
+            }
+            if(!repository.increment_thread_reply_count(request.thread_id, author_id, now)) {
+                return ForumError::not_found;
+            }
 
-            const auto post = forum_repository_.find_post(post_id);
+            const auto post = repository.find_post(*post_id);
             if(!post.has_value()) {
                 return ForumError::not_found;
             }
-            return post_with_replies(forum_repository_, *post);
+            auto result = post_with_replies(repository, *post);
+            transaction.commit();
+            return result;
         } catch(const drogon::orm::DrogonDbException& error) {
             if(!is_unique_violation(error) || attempt + 1 == kPostFloorRetryCount) {
                 if(is_unique_violation(error)) {
@@ -501,9 +540,8 @@ ForumResult<DeleteResult> ForumService::delete_post(
         return ForumError::forbidden;
     }
 
-    const auto db = forum_repository_.client();
-    const repositories::ForumRepository repository{db};
-    ImmediateTransaction transaction{db};
+    DbTransaction transaction{forum_repository_.client()};
+    const repositories::ForumRepository repository{transaction.client()};
     repository.soft_delete_post(post_id, now);
     repository.refresh_thread_reply_summary(post->thread_id);
     transaction.commit();
@@ -523,18 +561,19 @@ ForumResult<models::SubPost> ForumService::create_sub_post(
     if(request.reply_to_user_id.has_value() && *request.reply_to_user_id <= 0) {
         return ForumError::invalid_input;
     }
+    if(const auto error = author_write_error(user_repository_, author_id, now)) {
+        return *error;
+    }
     if(request.reply_to_user_id.has_value() && !forum_repository_.user_exists(*request.reply_to_user_id)) {
         return ForumError::not_found;
     }
 
-    const auto post = forum_repository_.find_post(request.post_id);
+    DbTransaction transaction{forum_repository_.client()};
+    const repositories::ForumRepository repository{transaction.client()};
+    const auto post = repository.find_post(request.post_id);
     if(!post.has_value()) {
         return ForumError::not_found;
     }
-
-    const auto db = forum_repository_.client();
-    const repositories::ForumRepository repository{db};
-    ImmediateTransaction transaction{db};
     const auto sub_post_id = repository.create_sub_post(
         request.post_id,
         author_id,
@@ -543,13 +582,18 @@ ForumResult<models::SubPost> ForumService::create_sub_post(
         request.reply_to_user_id,
         now
     );
-    repository.update_thread_last_reply(post->thread_id, author_id, now);
-    transaction.commit();
+    if(!sub_post_id.has_value()) {
+        return ForumError::not_found;
+    }
+    if(!repository.update_thread_last_reply(post->thread_id, request.post_id, author_id, now)) {
+        return ForumError::not_found;
+    }
 
-    const auto sub_post = forum_repository_.find_sub_post(sub_post_id);
+    const auto sub_post = repository.find_sub_post(*sub_post_id);
     if(!sub_post.has_value()) {
         return ForumError::not_found;
     }
+    transaction.commit();
     return *sub_post;
 }
 
@@ -599,9 +643,8 @@ ForumResult<DeleteResult> ForumService::delete_sub_post(
         return ForumError::forbidden;
     }
 
-    const auto db = forum_repository_.client();
-    const repositories::ForumRepository repository{db};
-    ImmediateTransaction transaction{db};
+    DbTransaction transaction{forum_repository_.client()};
+    const repositories::ForumRepository repository{transaction.client()};
     repository.soft_delete_sub_post(sub_post_id, now);
     repository.refresh_thread_reply_summary(sub_post->thread_id);
     transaction.commit();
