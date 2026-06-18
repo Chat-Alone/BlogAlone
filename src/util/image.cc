@@ -1,8 +1,18 @@
 #include "util/image.h"
 
+#include <spng.h>
+#include <jpeglib.h>
+#include <webp/decode.h>
+
+#ifdef _MSC_VER
+#pragma warning(push)
+#pragma warning(disable: 4324 4611)
+#endif
+
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <setjmp.h>
 
 namespace blogalone::util {
 namespace {
@@ -180,6 +190,102 @@ namespace {
     return std::nullopt;
 }
 
+[[nodiscard]] bool validate_png_decode(std::span<const unsigned char> data)
+{
+    spng_ctx* ctx = spng_ctx_new(0);
+    if(ctx == nullptr) {
+        return false;
+    }
+    const int set_buf_result = spng_set_png_buffer(ctx, data.data(), data.size());
+    if(set_buf_result != SPNG_OK) {
+        spng_ctx_free(ctx);
+        return false;
+    }
+    spng_ihdr ihdr{};
+    const int get_ihdr_result = spng_get_ihdr(ctx, &ihdr);
+    if(get_ihdr_result != SPNG_OK) {
+        spng_ctx_free(ctx);
+        return false;
+    }
+    size_t image_size = 0;
+    const int decode_result = spng_decoded_image_size(ctx, SPNG_FMT_RGBA8, &image_size);
+    if(decode_result != SPNG_OK) {
+        spng_ctx_free(ctx);
+        return false;
+    }
+    spng_ctx_free(ctx);
+    return true;
+}
+
+struct JpegErrorManager {
+    jpeg_error_mgr pub;
+    jmp_buf jump_buffer;
+};
+
+[[noreturn]] void jpeg_error_exit(j_common_ptr cinfo)
+{
+    auto* err = reinterpret_cast<JpegErrorManager*>(cinfo->err);
+    longjmp(err->jump_buffer, 1);
+}
+
+[[nodiscard]] bool validate_jpeg_decode(std::span<const unsigned char> data)
+{
+    JpegErrorManager error_mgr;
+    jpeg_decompress_struct cinfo;
+    cinfo.err = jpeg_std_error(&error_mgr.pub);
+    error_mgr.pub.error_exit = jpeg_error_exit;
+
+    if(setjmp(error_mgr.jump_buffer) != 0) {
+        jpeg_destroy_decompress(&cinfo);
+        return false;
+    }
+
+    jpeg_create_decompress(&cinfo);
+    jpeg_mem_src(&cinfo, data.data(), static_cast<unsigned long>(data.size()));
+    if(jpeg_read_header(&cinfo, TRUE) != JPEG_HEADER_OK) {
+        jpeg_destroy_decompress(&cinfo);
+        return false;
+    }
+    if(!jpeg_start_decompress(&cinfo)) {
+        jpeg_destroy_decompress(&cinfo);
+        return false;
+    }
+    jpeg_destroy_decompress(&cinfo);
+    return true;
+}
+
+[[nodiscard]] bool validate_webp_decode(std::span<const unsigned char> data)
+{
+    WebPDecoderConfig config;
+    if(WebPInitDecoderConfig(&config) == 0) {
+        return false;
+    }
+    if(WebPGetInfo(data.data(), data.size(), nullptr, nullptr) == 0) {
+        WebPFreeDecBuffer(&config.output);
+        return false;
+    }
+    const VP8StatusCode status = WebPDecode(data.data(), data.size(), &config);
+    WebPFreeDecBuffer(&config.output);
+    return status == VP8_STATUS_OK;
+}
+
+[[nodiscard]] bool validate_gif_structure(std::span<const unsigned char> data)
+{
+    if(data.size() < 10) {
+        return false;
+    }
+    constexpr std::array<unsigned char, 2> trailer{0x3b};
+    for(std::size_t i = data.size(); i > 0; --i) {
+        if(data[i - 1] == 0x3b) {
+            return true;
+        }
+        if(data[i - 1] != 0x00) {
+            break;
+        }
+    }
+    return false;
+}
+
 }
 
 std::optional<ImageInfo> probe_image(std::span<const unsigned char> data)
@@ -194,6 +300,21 @@ std::optional<ImageInfo> probe_image(std::span<const unsigned char> data)
         return gif;
     }
     return probe_webp(data);
+}
+
+bool validate_image_decode(std::span<const unsigned char> data, ImageFormat format)
+{
+    switch(format) {
+    case ImageFormat::png:
+        return validate_png_decode(data);
+    case ImageFormat::jpeg:
+        return validate_jpeg_decode(data);
+    case ImageFormat::webp:
+        return validate_webp_decode(data);
+    case ImageFormat::gif:
+        return validate_gif_structure(data);
+    }
+    return false;
 }
 
 std::string_view mime_for(ImageFormat format)
@@ -227,3 +348,7 @@ std::string_view extension_for(ImageFormat format)
 }
 
 }
+
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif

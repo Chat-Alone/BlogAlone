@@ -45,6 +45,25 @@ using RenderedPtr = std::unique_ptr<char, RenderedDeleter>;
     });
 }
 
+[[nodiscard]] std::size_t find_ci(std::string_view haystack, std::string_view needle, std::size_t from = 0)
+{
+    if(needle.empty()) {
+        return from;
+    }
+    if(haystack.size() < needle.size() || from > haystack.size() - needle.size()) {
+        return std::string_view::npos;
+    }
+    const auto end = haystack.size() - needle.size() + 1;
+    for(std::size_t i = from; i < end; ++i) {
+        if(std::ranges::equal(haystack.substr(i, needle.size()), needle, [](char left, char right) {
+            return std::tolower(static_cast<unsigned char>(left)) == std::tolower(static_cast<unsigned char>(right));
+        })) {
+            return i;
+        }
+    }
+    return std::string_view::npos;
+}
+
 [[nodiscard]] bool is_allowed_link_url(std::string_view url)
 {
     return starts_with_ci(url, "http://")
@@ -128,23 +147,43 @@ void drop_nodes(cmark_node* root, cmark_node_type type)
 
 [[nodiscard]] std::string add_external_link_rel(std::string_view html)
 {
-    constexpr std::string_view marker{"<a href=\"http"};
-    constexpr std::string_view replacement{
-        "<a rel=\"nofollow noopener noreferrer\" href=\"http"
-    };
+    constexpr std::string_view tag_open{"<a "};
+    constexpr std::string_view href_attr{"href=\""};
+    constexpr std::string_view http_scheme{"http"};
+    constexpr std::string_view rel_attr{"rel=\"nofollow noopener noreferrer\" "};
 
     std::string output;
     output.reserve(html.size());
     std::size_t cursor = 0;
-    while(true) {
-        const auto match = html.find(marker, cursor);
-        if(match == std::string_view::npos) {
+    while(cursor < html.size()) {
+        const auto tag_pos = find_ci(html, tag_open, cursor);
+        if(tag_pos == std::string_view::npos) {
             output.append(html.substr(cursor));
             break;
         }
-        output.append(html.substr(cursor, match - cursor));
-        output.append(replacement);
-        cursor = match + marker.size();
+        const auto after_tag = tag_pos + tag_open.size();
+        const auto href_pos = find_ci(html, href_attr, after_tag);
+        const auto next_tag = html.find('<', after_tag);
+        if(href_pos == std::string_view::npos
+            || (next_tag != std::string_view::npos && href_pos >= next_tag)) {
+            output.append(html.substr(cursor, after_tag - cursor));
+            cursor = after_tag;
+            continue;
+        }
+        const auto scheme_start = href_pos + href_attr.size();
+        if(scheme_start + http_scheme.size() > html.size()) {
+            output.append(html.substr(cursor));
+            break;
+        }
+        if(!starts_with_ci(html.substr(scheme_start, http_scheme.size()), http_scheme)) {
+            output.append(html.substr(cursor, after_tag - cursor));
+            cursor = after_tag;
+            continue;
+        }
+        output.append(html.substr(cursor, tag_pos - cursor));
+        output.append("<a ");
+        output.append(rel_attr);
+        cursor = after_tag;
     }
     return output;
 }

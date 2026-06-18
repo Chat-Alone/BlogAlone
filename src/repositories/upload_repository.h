@@ -18,7 +18,7 @@ class UploadRepository {
 
     [[nodiscard]] drogon::orm::DbClientPtr client() const;
     [[nodiscard]] std::optional<models::Upload> find_by_sha256(std::string_view sha256) const;
-    [[nodiscard]] std::int64_t create_upload(
+    [[nodiscard]] std::optional<std::int64_t> create_upload(
         std::string_view sha256,
         std::string_view path,
         std::string_view mime,

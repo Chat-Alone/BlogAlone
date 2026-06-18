@@ -4,6 +4,9 @@
 #include "services/upload_service.h"
 #include "util/image.h"
 
+#include <spng.h>
+#include <webp/decode.h>
+
 #include <drogon/drogon.h>
 #include <gtest/gtest.h>
 
@@ -21,24 +24,39 @@ namespace {
 
 using blogalone::util::ImageFormat;
 using blogalone::util::probe_image;
+using blogalone::util::validate_image_decode;
 
 [[nodiscard]] std::span<const unsigned char> as_bytes(const std::vector<unsigned char>& data)
 {
     return std::span<const unsigned char>{data.data(), data.size()};
 }
 
-[[nodiscard]] std::vector<unsigned char> make_png(unsigned char width, unsigned char height)
+[[nodiscard]] std::vector<unsigned char> make_png_header_only(unsigned char width, unsigned char height)
 {
-    std::vector<unsigned char> data{
+    return std::vector<unsigned char>{
         0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
         0x00, 0x00, 0x00, 0x0d, 'I', 'H', 'D', 'R',
         0x00, 0x00, 0x00, width,
         0x00, 0x00, 0x00, height
     };
-    return data;
 }
 
-[[nodiscard]] std::vector<unsigned char> make_gif()
+[[nodiscard]] std::vector<unsigned char> make_valid_1x1_png()
+{
+    return std::vector<unsigned char>{
+        0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+        0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+        0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+        0x08, 0x02, 0x00, 0x00, 0x00, 0x90, 0x77, 0x53,
+        0xde, 0x00, 0x00, 0x00, 0x0c, 0x49, 0x44, 0x41,
+        0x54, 0x08, 0xd7, 0x63, 0xf8, 0xcf, 0xc0, 0x00,
+        0x00, 0x00, 0x02, 0x00, 0x01, 0xe2, 0x21, 0xbc,
+        0x33, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e,
+        0x44, 0xae, 0x42, 0x60, 0x82
+    };
+}
+
+[[nodiscard]] std::vector<unsigned char> make_gif_header_only()
 {
     return std::vector<unsigned char>{
         'G', 'I', 'F', '8', '9', 'a',
@@ -46,14 +64,29 @@ using blogalone::util::probe_image;
     };
 }
 
-[[nodiscard]] std::vector<unsigned char> make_jpeg()
+[[nodiscard]] std::vector<unsigned char> make_valid_1x1_gif()
+{
+    return std::vector<unsigned char>{
+        'G', 'I', 'F', '8', '9', 'a',
+        0x01, 0x00, 0x01, 0x00, 0x80, 0x00, 0x00,
+        0xff, 0xff, 0xff,
+        0x00, 0x00, 0x00,
+        0x21, 0xf9, 0x04, 0x01, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x2c, 0x00, 0x00, 0x00, 0x00,
+        0x01, 0x00, 0x01, 0x00, 0x00,
+        0x02, 0x02, 0x44, 0x01, 0x00,
+        0x3b
+    };
+}
+
+[[nodiscard]] std::vector<unsigned char> make_jpeg_header_only()
 {
     return std::vector<unsigned char>{
         0xff, 0xd8, 0xff, 0xc0, 0x00, 0x11, 0x08, 0x00, 0x06, 0x00, 0x07, 0x00
     };
 }
 
-[[nodiscard]] std::vector<unsigned char> make_webp_lossless()
+[[nodiscard]] std::vector<unsigned char> make_webp_lossless_header_only()
 {
     return std::vector<unsigned char>{
         'R', 'I', 'F', 'F', 0x1a, 0x00, 0x00, 0x00,
@@ -62,9 +95,9 @@ using blogalone::util::probe_image;
     };
 }
 
-TEST(ImageProbeTest, ParsesPng)
+TEST(ImageProbeTest, ParsesPngHeader)
 {
-    const auto data = make_png(2, 3);
+    const auto data = make_png_header_only(2, 3);
     const auto info = probe_image(as_bytes(data));
     ASSERT_TRUE(info.has_value());
     EXPECT_EQ(info->format, ImageFormat::png);
@@ -72,9 +105,9 @@ TEST(ImageProbeTest, ParsesPng)
     EXPECT_EQ(info->height, 3u);
 }
 
-TEST(ImageProbeTest, ParsesGif)
+TEST(ImageProbeTest, ParsesGifHeader)
 {
-    const auto data = make_gif();
+    const auto data = make_gif_header_only();
     const auto info = probe_image(as_bytes(data));
     ASSERT_TRUE(info.has_value());
     EXPECT_EQ(info->format, ImageFormat::gif);
@@ -82,9 +115,9 @@ TEST(ImageProbeTest, ParsesGif)
     EXPECT_EQ(info->height, 5u);
 }
 
-TEST(ImageProbeTest, ParsesJpeg)
+TEST(ImageProbeTest, ParsesJpegHeader)
 {
-    const auto data = make_jpeg();
+    const auto data = make_jpeg_header_only();
     const auto info = probe_image(as_bytes(data));
     ASSERT_TRUE(info.has_value());
     EXPECT_EQ(info->format, ImageFormat::jpeg);
@@ -92,9 +125,9 @@ TEST(ImageProbeTest, ParsesJpeg)
     EXPECT_EQ(info->height, 6u);
 }
 
-TEST(ImageProbeTest, ParsesWebpLossless)
+TEST(ImageProbeTest, ParsesWebpLosslessHeader)
 {
-    const auto data = make_webp_lossless();
+    const auto data = make_webp_lossless_header_only();
     const auto info = probe_image(as_bytes(data));
     ASSERT_TRUE(info.has_value());
     EXPECT_EQ(info->format, ImageFormat::webp);
@@ -112,6 +145,36 @@ TEST(ImageProbeTest, RejectsTruncatedPng)
 {
     std::vector<unsigned char> data{0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a};
     EXPECT_FALSE(probe_image(as_bytes(data)).has_value());
+}
+
+TEST(ImageDecodeTest, AcceptsValidPng)
+{
+    const auto data = make_valid_1x1_png();
+    EXPECT_TRUE(validate_image_decode(as_bytes(data), ImageFormat::png));
+}
+
+TEST(ImageDecodeTest, RejectsPngHeaderOnly)
+{
+    const auto data = make_png_header_only(2, 3);
+    EXPECT_FALSE(validate_image_decode(as_bytes(data), ImageFormat::png));
+}
+
+TEST(ImageDecodeTest, AcceptsValidGif)
+{
+    const auto data = make_valid_1x1_gif();
+    EXPECT_TRUE(validate_image_decode(as_bytes(data), ImageFormat::gif));
+}
+
+TEST(ImageDecodeTest, RejectsGifHeaderOnly)
+{
+    const auto data = make_gif_header_only();
+    EXPECT_FALSE(validate_image_decode(as_bytes(data), ImageFormat::gif));
+}
+
+TEST(ImageDecodeTest, RejectsJpegHeaderOnly)
+{
+    const auto data = make_jpeg_header_only();
+    EXPECT_FALSE(validate_image_decode(as_bytes(data), ImageFormat::jpeg));
 }
 
 [[nodiscard]] std::string bytes_to_string(const std::vector<unsigned char>& data)
@@ -213,13 +276,13 @@ class UploadServiceTest : public testing::Test {
 TEST_F(UploadServiceTest, StoresValidPng)
 {
     const auto owner = insert_user("alice");
-    const auto content = bytes_to_string(make_png(2, 3));
+    const auto content = bytes_to_string(make_valid_1x1_png());
     const auto result = service_.store_image(owner, content, 1'700'000'000);
 
     ASSERT_TRUE(result.has_value());
     EXPECT_EQ(result->mime, "image/png");
-    EXPECT_EQ(result->width, 2);
-    EXPECT_EQ(result->height, 3);
+    EXPECT_EQ(result->width, 1);
+    EXPECT_EQ(result->height, 1);
     EXPECT_TRUE(result->url.starts_with("/uploads/"));
 
     const auto relative = result->url.substr(std::string_view{"/uploads/"}.size());
@@ -227,10 +290,19 @@ TEST_F(UploadServiceTest, StoresValidPng)
     EXPECT_TRUE(upload_repository_.owner_has_upload_path(owner, relative));
 }
 
+TEST_F(UploadServiceTest, RejectsPngHeaderOnly)
+{
+    const auto owner = insert_user("alice");
+    const auto content = bytes_to_string(make_png_header_only(2, 3));
+    const auto result = service_.store_image(owner, content, 1'700'000'000);
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error(), blogalone::services::UploadError::unsupported_type);
+}
+
 TEST_F(UploadServiceTest, DeduplicatesIdenticalContent)
 {
     const auto owner = insert_user("alice");
-    const auto content = bytes_to_string(make_png(2, 3));
+    const auto content = bytes_to_string(make_valid_1x1_png());
     const auto first = service_.store_image(owner, content, 1'700'000'000);
     const auto second = service_.store_image(owner, content, 1'700'000'000);
 
@@ -253,7 +325,7 @@ TEST_F(UploadServiceTest, RejectsNonImage)
 TEST_F(UploadServiceTest, RejectsBannedUser)
 {
     const auto owner = insert_user("bob", 2'000'000'000);
-    const auto content = bytes_to_string(make_png(2, 3));
+    const auto content = bytes_to_string(make_valid_1x1_png());
     const auto result = service_.store_image(owner, content, 1'700'000'000);
     ASSERT_FALSE(result.has_value());
     EXPECT_EQ(result.error(), blogalone::services::UploadError::forbidden);
@@ -268,7 +340,7 @@ TEST_F(UploadServiceTest, RejectsOversizedFile)
         blogalone::repositories::UserRepository{client_}
     };
     const auto owner = insert_user("alice");
-    const auto content = bytes_to_string(make_png(2, 3));
+    const auto content = bytes_to_string(make_valid_1x1_png());
     const auto result = limited.store_image(owner, content, 1'700'000'000);
     ASSERT_FALSE(result.has_value());
     EXPECT_EQ(result.error(), blogalone::services::UploadError::too_large);
@@ -283,8 +355,8 @@ TEST_F(UploadServiceTest, EnforcesDailyQuota)
         blogalone::repositories::UserRepository{client_}
     };
     const auto owner = insert_user("alice");
-    const auto first = limited.store_image(owner, bytes_to_string(make_png(2, 3)), 1'700'000'000);
-    const auto second = limited.store_image(owner, bytes_to_string(make_gif()), 1'700'000'000);
+    const auto first = limited.store_image(owner, bytes_to_string(make_valid_1x1_png()), 1'700'000'000);
+    const auto second = limited.store_image(owner, bytes_to_string(make_valid_1x1_gif()), 1'700'000'000);
 
     ASSERT_TRUE(first.has_value());
     ASSERT_FALSE(second.has_value());

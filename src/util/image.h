@@ -25,6 +25,11 @@ struct ImageInfo {
 // does not match a supported image header or is truncated.
 [[nodiscard]] std::optional<ImageInfo> probe_image(std::span<const unsigned char> data);
 
+// Attempts to fully decode the image data using the appropriate library for each
+// format. Returns true only when the entire image can be decoded without error.
+// Use this as a second-pass validation after probe_image succeeds.
+[[nodiscard]] bool validate_image_decode(std::span<const unsigned char> data, ImageFormat format);
+
 [[nodiscard]] std::string_view mime_for(ImageFormat format);
 [[nodiscard]] std::string_view extension_for(ImageFormat format);
 

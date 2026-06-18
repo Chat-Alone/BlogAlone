@@ -1,0 +1,5 @@
+适用于 .NET Framework MSBuild 版本 18.6.3+84d3e95b4
+
+  blogalone_core.vcxproj -> C:\Workspace\HTML\BlogAlone\build-msvc\Debug\blogalone_core.lib
+  blogalone_dependency_checks.vcxproj -> C:\Workspace\HTML\BlogAlone\build-msvc\Debug\blogalone_dependency_checks.lib
+  blogalone_unit_tests.vcxproj -> C:\Workspace\HTML\BlogAlone\build-msvc\Debug\blogalone_unit_tests.exe

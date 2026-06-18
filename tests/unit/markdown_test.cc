@@ -54,6 +54,20 @@ TEST(MarkdownTest, KeepsMailtoLinkWithoutRel)
     EXPECT_EQ(html.find("rel="), std::string::npos);
 }
 
+TEST(MarkdownTest, AddsRelToUppercaseHttpsLink)
+{
+    const auto html = render_markdown("[site](HTTPS://example.com)");
+    EXPECT_NE(html.find("href=\"HTTPS://example.com\""), std::string::npos);
+    EXPECT_NE(html.find("rel=\"nofollow noopener noreferrer\""), std::string::npos);
+}
+
+TEST(MarkdownTest, AddsRelToMixedCaseHttpLink)
+{
+    const auto html = render_markdown("[site](HtTp://example.com)");
+    EXPECT_NE(html.find("href=\"HtTp://example.com\""), std::string::npos);
+    EXPECT_NE(html.find("rel=\"nofollow noopener noreferrer\""), std::string::npos);
+}
+
 TEST(MarkdownTest, DropsImagesWithoutPredicate)
 {
     const auto html = render_markdown("![alt](/uploads/2026/06/aa/x.png)");

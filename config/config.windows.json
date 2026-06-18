@@ -10,6 +10,7 @@
     "threads_num": 4,
     "run_as_daemon": false
   },
+  "client_max_body_size": 6291456,
   "db_clients": [
     {
       "name": "default",

@@ -118,6 +118,9 @@ UploadResult<UploadDescriptor> UploadService::store_image(
         || image->height > static_cast<std::uint32_t>(limits_.max_dimension)) {
         return UploadError::unsupported_type;
     }
+    if(!util::validate_image_decode(bytes, image->format)) {
+        return UploadError::unsupported_type;
+    }
 
     if(upload_repository_.count_owner_refs_since(owner_id, now - 86'400) >= limits_.max_daily_uploads) {
         return UploadError::rate_limited;
@@ -126,34 +129,36 @@ UploadResult<UploadDescriptor> UploadService::store_image(
     const auto sha256 = util::sha256_hex(content);
     const auto mime = util::mime_for(image->format);
 
-    auto existing = upload_repository_.find_by_sha256(sha256);
     std::int64_t upload_id = 0;
     std::string relative_path;
-    if(existing.has_value()) {
-        upload_id = existing->id;
-        relative_path = std::move(existing->path);
+    relative_path = year_month_prefix(now) + "/" + sha256.substr(0, 2) + "/" + sha256
+        + "." + std::string{util::extension_for(image->format)};
+    const auto absolute = uploads_root_ / std::filesystem::path{relative_path};
+    std::error_code fs_error;
+    if(!std::filesystem::exists(absolute, fs_error) && !write_file(absolute, content)) {
+        return UploadError::internal_error;
+    }
+    const auto inserted = upload_repository_.create_upload(
+        sha256,
+        relative_path,
+        mime,
+        static_cast<std::int64_t>(content.size()),
+        static_cast<std::int64_t>(image->width),
+        static_cast<std::int64_t>(image->height),
+        now
+    );
+    if(inserted.has_value()) {
+        upload_id = *inserted;
     } else {
-        relative_path = year_month_prefix(now) + "/" + sha256.substr(0, 2) + "/" + sha256
-            + "." + std::string{util::extension_for(image->format)};
-        const auto absolute = uploads_root_ / std::filesystem::path{relative_path};
-        std::error_code error;
-        if(!std::filesystem::exists(absolute, error) && !write_file(absolute, content)) {
+        const auto existing = upload_repository_.find_by_sha256(sha256);
+        if(!existing.has_value()) {
             return UploadError::internal_error;
         }
-        upload_id = upload_repository_.create_upload(
-            sha256,
-            relative_path,
-            mime,
-            static_cast<std::int64_t>(content.size()),
-            static_cast<std::int64_t>(image->width),
-            static_cast<std::int64_t>(image->height),
-            now
-        );
+        upload_id = existing->id;
+        relative_path = existing->path;
     }
 
-    if(!upload_repository_.ref_exists(owner_id, upload_id)) {
-        upload_repository_.create_ref(owner_id, upload_id, now);
-    }
+    upload_repository_.create_ref(owner_id, upload_id, now);
 
     return UploadDescriptor{
         .url = "/uploads/" + relative_path,

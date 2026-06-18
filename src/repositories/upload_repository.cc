@@ -57,7 +57,7 @@ std::optional<models::Upload> UploadRepository::find_by_sha256(std::string_view 
     return row_to_upload(rows.at(0));
 }
 
-std::int64_t UploadRepository::create_upload(
+std::optional<std::int64_t> UploadRepository::create_upload(
     std::string_view sha256,
     std::string_view path,
     std::string_view mime,
@@ -69,7 +69,7 @@ std::int64_t UploadRepository::create_upload(
 {
     const auto db = client();
     const auto rows = db->execSqlSync(
-        "INSERT INTO uploads (sha256, path, mime, size, width, height, created_at) "
+        "INSERT OR IGNORE INTO uploads (sha256, path, mime, size, width, height, created_at) "
         "VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id",
         std::string{sha256},
         std::string{path},
@@ -79,6 +79,9 @@ std::int64_t UploadRepository::create_upload(
         height,
         created_at
     );
+    if(rows.empty()) {
+        return std::nullopt;
+    }
     return rows.at(0)["id"].as<std::int64_t>();
 }
 
@@ -101,7 +104,7 @@ void UploadRepository::create_ref(
 {
     const auto db = client();
     db->execSqlSync(
-        "INSERT INTO upload_refs (owner_id, upload_id, created_at) VALUES (?, ?, ?)",
+        "INSERT OR IGNORE INTO upload_refs (owner_id, upload_id, created_at) VALUES (?, ?, ?)",
         owner_id,
         upload_id,
         created_at

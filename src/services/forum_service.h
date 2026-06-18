@@ -163,9 +163,15 @@ class ForumService {
     ) const;
 
   private:
-    [[nodiscard]] std::string render_and_bind(
+    [[nodiscard]] std::string render_and_collect_refs(
         std::int64_t author_id,
         std::string_view body_md,
+        std::vector<std::string>& referenced_paths
+    ) const;
+
+    void mark_refs_attached(
+        const std::vector<std::string>& referenced_paths,
+        std::int64_t author_id,
         std::int64_t now
     ) const;
 

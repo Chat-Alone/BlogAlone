@@ -18,6 +18,10 @@ endif()
 
 find_package(cmark-gfm CONFIG REQUIRED)
 
+find_package(SPNG CONFIG REQUIRED)
+find_package(libjpeg-turbo CONFIG REQUIRED)
+find_package(WebP CONFIG REQUIRED)
+
 function(blogalone_select_target output_name)
     foreach(candidate IN LISTS ARGN)
         if(TARGET "${candidate}")
@@ -58,6 +62,20 @@ blogalone_select_target(BLOGALONE_SPDLOG_TARGET
     spdlog::spdlog_header_only
 )
 
+blogalone_select_target(BLOGALONE_SPNG_TARGET
+    spng::spng
+)
+
+blogalone_select_target(BLOGALONE_JPEG_TARGET
+    libjpeg-turbo::jpeg
+    JPEG::JPEG
+)
+
+blogalone_select_target(BLOGALONE_WEBP_TARGET
+    WebP::webp
+    WebP::webpdecoder
+)
+
 add_library(blogalone_backend_deps INTERFACE)
 target_link_libraries(blogalone_backend_deps
     INTERFACE
@@ -66,5 +84,7 @@ target_link_libraries(blogalone_backend_deps
         ${BLOGALONE_SODIUM_TARGET}
         ${BLOGALONE_CMARK_GFM_TARGET}
         ${BLOGALONE_SPDLOG_TARGET}
+        ${BLOGALONE_SPNG_TARGET}
+        ${BLOGALONE_JPEG_TARGET}
+        ${BLOGALONE_WEBP_TARGET}
 )
-
