@@ -2,6 +2,7 @@
 
 #include "repositories/upload_repository.h"
 #include "repositories/user_repository.h"
+#include "util/image.h"
 
 #include <cstdint>
 #include <filesystem>
@@ -14,7 +15,7 @@ namespace blogalone::services {
 struct UploadLimits {
     std::int64_t max_file_size{5 * 1024 * 1024};
     std::int64_t max_daily_uploads{100};
-    std::int64_t max_dimension{10000};
+    std::int64_t max_dimension{util::kMaxDecodedImageDimension};
 };
 
 struct UploadDescriptor {

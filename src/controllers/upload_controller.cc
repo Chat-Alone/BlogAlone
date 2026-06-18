@@ -16,12 +16,15 @@
 #include <functional>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
 
 namespace blogalone::controllers {
 namespace {
 
 using HttpCallback = std::function<void(const drogon::HttpResponsePtr&)>;
+
+constexpr std::string_view kUploadFilePartName{"file"};
 
 [[nodiscard]] http::ErrorCode to_error_code(services::UploadError error)
 {
@@ -78,8 +81,18 @@ void handle_create_upload(const drogon::HttpRequestPtr& request, const HttpCallb
     }
 
     const auto& file = parser.getFiles().front();
+    if(std::string_view{file.getItemName()} != kUploadFilePartName) {
+        callback(error_response(request, http::ErrorCode::invalid_argument, "expected file part named file"));
+        return;
+    }
+
     const auto app_config = config::app_config_from_drogon();
-    const services::UploadService service{app_config.uploads_root};
+    const services::UploadLimits limits{
+        .max_file_size = app_config.upload.max_file_size,
+        .max_daily_uploads = app_config.upload.max_daily_uploads,
+        .max_dimension = app_config.upload.max_dimension
+    };
+    const services::UploadService service{app_config.uploads_root, limits};
     const auto result = service.store_image(*user_id, file.fileContent(), util::utc_unix_seconds());
     if(!result.has_value()) {
         callback(error_response(

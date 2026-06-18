@@ -28,13 +28,19 @@ using blogalone::util::validate_image_decode;
     return std::span<const unsigned char>{data.data(), data.size()};
 }
 
-[[nodiscard]] std::vector<unsigned char> make_png_header_only(unsigned char width, unsigned char height)
+[[nodiscard]] std::vector<unsigned char> make_png_header_only(std::uint32_t width, std::uint32_t height)
 {
     return std::vector<unsigned char>{
         0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
         0x00, 0x00, 0x00, 0x0d, 'I', 'H', 'D', 'R',
-        0x00, 0x00, 0x00, width,
-        0x00, 0x00, 0x00, height
+        static_cast<unsigned char>((width >> 24) & 0xff),
+        static_cast<unsigned char>((width >> 16) & 0xff),
+        static_cast<unsigned char>((width >> 8) & 0xff),
+        static_cast<unsigned char>(width & 0xff),
+        static_cast<unsigned char>((height >> 24) & 0xff),
+        static_cast<unsigned char>((height >> 16) & 0xff),
+        static_cast<unsigned char>((height >> 8) & 0xff),
+        static_cast<unsigned char>(height & 0xff)
     };
 }
 
@@ -385,6 +391,28 @@ TEST_F(UploadServiceTest, RejectsPngHeaderOnly)
     const auto result = service_.store_image(owner, content, 1'700'000'000);
     ASSERT_FALSE(result.has_value());
     EXPECT_EQ(result.error(), blogalone::services::UploadError::unsupported_type);
+}
+
+TEST_F(UploadServiceTest, DefaultMaxDimensionMatchesDecodedLimit)
+{
+    const blogalone::services::UploadLimits limits;
+
+    EXPECT_EQ(limits.max_dimension, blogalone::util::kMaxDecodedImageDimension);
+}
+
+TEST_F(UploadServiceTest, RejectsImageAboveConfiguredDimension)
+{
+    const auto owner = insert_user("alice");
+    const auto content = bytes_to_string(make_png_header_only(6000, 6000));
+    const auto result = service_.store_image(owner, content, 1'700'000'000);
+
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error(), blogalone::services::UploadError::unsupported_type);
+    EXPECT_EQ(regular_file_count(workspace_.path() / "uploads"), 0);
+
+    const auto rows = client_->execSqlSync("SELECT COUNT(*) AS total FROM uploads");
+    ASSERT_EQ(rows.size(), 1);
+    EXPECT_EQ(rows.at(0)["total"].as<std::int64_t>(), 0);
 }
 
 TEST_F(UploadServiceTest, DeduplicatesIdenticalContent)

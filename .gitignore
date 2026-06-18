@@ -9,3 +9,5 @@ vcpkg_installed/
 *.db-shm
 *.db-wal
 *.log
+build-errors.txt
+CMakeCache.txt.tmp*

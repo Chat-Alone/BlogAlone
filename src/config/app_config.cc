@@ -36,6 +36,26 @@ namespace {
     return config[key].asInt();
 }
 
+[[nodiscard]] std::int64_t positive_int64_or_default(
+    const Json::Value& config,
+    const char* key,
+    std::int64_t fallback
+)
+{
+    if(!config.isMember(key)) {
+        return fallback;
+    }
+    if(config[key].isInt64() && config[key].asInt64() > 0) {
+        return config[key].asInt64();
+    }
+    const auto max_int64 = static_cast<std::uint64_t>((std::numeric_limits<std::int64_t>::max)());
+    if(config[key].isUInt64()
+        && config[key].asUInt64() <= max_int64) {
+        return static_cast<std::int64_t>(config[key].asUInt64());
+    }
+    throw std::invalid_argument{std::string{"custom_config."} + key + " must be a positive integer"};
+}
+
 [[nodiscard]] std::uint64_t positive_uint64_or_default(
     const Json::Value& config,
     const char* key,
@@ -76,6 +96,32 @@ namespace {
     };
 }
 
+[[nodiscard]] UploadConfig upload_config_from(const Json::Value& custom_config)
+{
+    const UploadConfig defaults;
+    UploadConfig upload{
+        .max_file_size = positive_int64_or_default(
+            custom_config,
+            "upload_max_file_size",
+            defaults.max_file_size
+        ),
+        .max_daily_uploads = positive_int64_or_default(
+            custom_config,
+            "upload_max_daily_uploads",
+            defaults.max_daily_uploads
+        ),
+        .max_dimension = positive_int64_or_default(
+            custom_config,
+            "upload_max_dimension",
+            defaults.max_dimension
+        )
+    };
+    if(upload.max_dimension > util::kMaxDecodedImageDimension) {
+        throw std::invalid_argument{"custom_config.upload_max_dimension exceeds decoded image limit"};
+    }
+    return upload;
+}
+
 [[nodiscard]] std::vector<std::string> string_array_or_empty(const Json::Value& config, const char* key)
 {
     if(!config.isMember(key)) {
@@ -108,6 +154,7 @@ AppConfig app_config_from_json(const Json::Value& custom_config)
             "session_ttl_seconds",
             1'209'600
         ),
+        .upload = upload_config_from(custom_config),
         .password_hash_options = password_hash_options_from(custom_config)
     };
 }

@@ -38,6 +38,9 @@
     "web_root": "web",
     "uploads_root": "uploads",
     "session_ttl_seconds": 1209600,
+    "upload_max_file_size": 5242880,
+    "upload_max_daily_uploads": 100,
+    "upload_max_dimension": 5792,
     "password_opslimit": 2,
     "password_memlimit": 67108864
   }

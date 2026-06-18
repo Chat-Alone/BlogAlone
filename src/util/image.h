@@ -1,11 +1,20 @@
 #pragma once
 
 #include <cstdint>
+#include <cstddef>
 #include <optional>
 #include <span>
 #include <string_view>
 
 namespace blogalone::util {
+
+inline constexpr std::size_t kMaxDecodedImageBytes = 128 * 1024 * 1024;
+inline constexpr std::int64_t kMaxDecodedImageDimension = 5792;
+
+static_assert(
+    static_cast<std::size_t>(kMaxDecodedImageDimension) * static_cast<std::size_t>(kMaxDecodedImageDimension)
+        <= kMaxDecodedImageBytes / 4
+);
 
 enum class ImageFormat {
     png,

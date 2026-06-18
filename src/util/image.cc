@@ -25,8 +25,6 @@
 namespace blogalone::util {
 namespace {
 
-constexpr std::size_t kMaxDecodedImageBytes = 128 * 1024 * 1024;
-
 struct SpngContextDeleter {
     void operator()(spng_ctx* ctx) const { spng_ctx_free(ctx); }
 };

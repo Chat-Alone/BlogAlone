@@ -104,6 +104,9 @@ TEST(InfrastructureTest, ParsesApplicationCustomConfig)
     custom_config["uploads_root"] = "var/uploads";
     custom_config["web_root"] = "public";
     custom_config["session_ttl_seconds"] = 60;
+    custom_config["upload_max_file_size"] = 1'048'576;
+    custom_config["upload_max_daily_uploads"] = 7;
+    custom_config["upload_max_dimension"] = 1024;
     custom_config["password_opslimit"] = 2;
     custom_config["password_memlimit"] = 67'108'864;
 
@@ -114,6 +117,9 @@ TEST(InfrastructureTest, ParsesApplicationCustomConfig)
     EXPECT_EQ(parsed.uploads_root, std::filesystem::path{"var/uploads"});
     EXPECT_EQ(parsed.web_root, std::filesystem::path{"public"});
     EXPECT_EQ(parsed.session_ttl_seconds, 60);
+    EXPECT_EQ(parsed.upload.max_file_size, 1'048'576);
+    EXPECT_EQ(parsed.upload.max_daily_uploads, 7);
+    EXPECT_EQ(parsed.upload.max_dimension, 1024);
     EXPECT_EQ(parsed.password_hash_options.opslimit, 2);
     EXPECT_EQ(parsed.password_hash_options.memlimit, 67'108'864);
 }
@@ -122,6 +128,19 @@ TEST(InfrastructureTest, RejectsInvalidCustomConfig)
 {
     Json::Value custom_config;
     custom_config["session_ttl_seconds"] = 0;
+
+    EXPECT_THROW(
+        static_cast<void>(blogalone::config::app_config_from_json(custom_config)),
+        std::invalid_argument
+    );
+}
+
+TEST(InfrastructureTest, RejectsUploadDimensionAboveDecodedLimit)
+{
+    Json::Value custom_config;
+    custom_config["upload_max_dimension"] = static_cast<Json::Int64>(
+        blogalone::util::kMaxDecodedImageDimension + 1
+    );
 
     EXPECT_THROW(
         static_cast<void>(blogalone::config::app_config_from_json(custom_config)),

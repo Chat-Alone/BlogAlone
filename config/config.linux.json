@@ -38,6 +38,9 @@
     "web_root": "/opt/blogalone/web",
     "uploads_root": "/var/lib/blogalone/uploads",
     "session_ttl_seconds": 1209600,
+    "upload_max_file_size": 5242880,
+    "upload_max_daily_uploads": 100,
+    "upload_max_dimension": 5792,
     "password_opslimit": 3,
     "password_memlimit": 268435456
   }
