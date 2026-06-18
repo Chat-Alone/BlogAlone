@@ -85,19 +85,21 @@ std::optional<std::int64_t> UploadRepository::create_upload(
     return rows.at(0)["id"].as<std::int64_t>();
 }
 
-void UploadRepository::create_ref(
+bool UploadRepository::create_ref(
     std::int64_t owner_id,
     std::int64_t upload_id,
     std::int64_t created_at
 ) const
 {
     const auto db = client();
-    db->execSqlSync(
-        "INSERT OR IGNORE INTO upload_refs (owner_id, upload_id, created_at) VALUES (?, ?, ?)",
+    const auto rows = db->execSqlSync(
+        "INSERT OR IGNORE INTO upload_refs (owner_id, upload_id, created_at) "
+        "VALUES (?, ?, ?) RETURNING id",
         owner_id,
         upload_id,
         created_at
     );
+    return !rows.empty();
 }
 
 std::int64_t UploadRepository::count_owner_refs_since(std::int64_t owner_id, std::int64_t since) const

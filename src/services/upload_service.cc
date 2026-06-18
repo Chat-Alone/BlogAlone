@@ -6,7 +6,11 @@
 #include <chrono>
 #include <cstdint>
 #include <fstream>
+#include <future>
+#include <memory>
+#include <optional>
 #include <span>
+#include <stdexcept>
 #include <system_error>
 #include <utility>
 
@@ -47,6 +51,70 @@ namespace {
     stream.write(content.data(), static_cast<std::streamsize>(content.size()));
     return stream.good();
 }
+
+void remove_created_file_if_unreferenced(
+    const repositories::UploadRepository& repository,
+    std::string_view sha256,
+    std::string_view relative_path,
+    const std::filesystem::path& absolute,
+    bool created_file
+)
+{
+    if(!created_file) {
+        return;
+    }
+    try {
+        const auto existing = repository.find_by_sha256(sha256);
+        if(existing.has_value() && existing->path == relative_path) {
+            return;
+        }
+    } catch(...) {
+        return;
+    }
+
+    std::error_code error;
+    std::filesystem::remove(absolute, error);
+}
+
+class DbTransaction {
+  public:
+    explicit DbTransaction(const drogon::orm::DbClientPtr& db)
+        : commit_promise_{std::make_shared<std::promise<bool>>()}
+        , commit_result_{commit_promise_->get_future()}
+        , transaction_{db->newTransaction([promise = commit_promise_](bool committed) {
+            promise->set_value(committed);
+        })}
+    {
+    }
+
+    DbTransaction(const DbTransaction&) = delete;
+    DbTransaction& operator=(const DbTransaction&) = delete;
+
+    ~DbTransaction()
+    {
+        if(transaction_) {
+            transaction_->rollback();
+        }
+    }
+
+    [[nodiscard]] drogon::orm::DbClientPtr client() const
+    {
+        return {transaction_.get(), [](drogon::orm::DbClient*) {}};
+    }
+
+    void commit()
+    {
+        transaction_.reset();
+        if(!commit_result_.get()) {
+            throw std::runtime_error{"database transaction commit failed"};
+        }
+    }
+
+  private:
+    std::shared_ptr<std::promise<bool>> commit_promise_;
+    std::future<bool> commit_result_;
+    std::shared_ptr<drogon::orm::Transaction> transaction_;
+};
 
 }
 
@@ -122,7 +190,8 @@ UploadResult<UploadDescriptor> UploadService::store_image(
         return UploadError::unsupported_type;
     }
 
-    if(upload_repository_.count_owner_refs_since(owner_id, now - 86'400) >= limits_.max_daily_uploads) {
+    const auto quota_since = now - 86'400;
+    if(upload_repository_.count_owner_refs_since(owner_id, quota_since) >= limits_.max_daily_uploads) {
         return UploadError::rate_limited;
     }
 
@@ -135,30 +204,67 @@ UploadResult<UploadDescriptor> UploadService::store_image(
         + "." + std::string{util::extension_for(image->format)};
     const auto absolute = uploads_root_ / std::filesystem::path{relative_path};
     std::error_code fs_error;
-    if(!std::filesystem::exists(absolute, fs_error) && !write_file(absolute, content)) {
+    const bool file_existed = std::filesystem::is_regular_file(absolute, fs_error);
+    if(!file_existed && !write_file(absolute, content)) {
         return UploadError::internal_error;
     }
-    const auto inserted = upload_repository_.create_upload(
-        sha256,
-        relative_path,
-        mime,
-        static_cast<std::int64_t>(content.size()),
-        static_cast<std::int64_t>(image->width),
-        static_cast<std::int64_t>(image->height),
-        now
-    );
-    if(inserted.has_value()) {
-        upload_id = *inserted;
-    } else {
-        const auto existing = upload_repository_.find_by_sha256(sha256);
-        if(!existing.has_value()) {
-            return UploadError::internal_error;
+    const bool created_file = !file_existed;
+
+    std::optional<UploadError> db_error;
+    try {
+        DbTransaction transaction{upload_repository_.client()};
+        const repositories::UploadRepository repository{transaction.client()};
+        if(repository.count_owner_refs_since(owner_id, quota_since) >= limits_.max_daily_uploads) {
+            db_error = UploadError::rate_limited;
+        } else {
+            const auto inserted = repository.create_upload(
+                sha256,
+                relative_path,
+                mime,
+                static_cast<std::int64_t>(content.size()),
+                static_cast<std::int64_t>(image->width),
+                static_cast<std::int64_t>(image->height),
+                now
+            );
+            if(inserted.has_value()) {
+                upload_id = *inserted;
+            } else {
+                const auto existing = repository.find_by_sha256(sha256);
+                if(existing.has_value()) {
+                    upload_id = existing->id;
+                    relative_path = existing->path;
+                } else {
+                    db_error = UploadError::internal_error;
+                }
+            }
+            if(!db_error.has_value()) {
+                static_cast<void>(repository.create_ref(owner_id, upload_id, now));
+            }
         }
-        upload_id = existing->id;
-        relative_path = existing->path;
+        if(!db_error.has_value()) {
+            transaction.commit();
+        }
+    } catch(...) {
+        remove_created_file_if_unreferenced(
+            upload_repository_,
+            sha256,
+            relative_path,
+            absolute,
+            created_file
+        );
+        throw;
     }
 
-    upload_repository_.create_ref(owner_id, upload_id, now);
+    if(db_error.has_value()) {
+        remove_created_file_if_unreferenced(
+            upload_repository_,
+            sha256,
+            relative_path,
+            absolute,
+            created_file
+        );
+        return *db_error;
+    }
 
     return UploadDescriptor{
         .url = "/uploads/" + relative_path,

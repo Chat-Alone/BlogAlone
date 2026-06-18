@@ -5,8 +5,8 @@
 
 #include "util/image.h"
 
-#include <jpeglib.h>
 #include <spng.h>
+#include <turbojpeg.h>
 #include <webp/decode.h>
 
 #ifdef _MSC_VER
@@ -17,8 +17,9 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <memory>
-#include <setjmp.h>
+#include <optional>
 #include <vector>
 
 namespace blogalone::util {
@@ -30,7 +31,50 @@ struct SpngContextDeleter {
     void operator()(spng_ctx* ctx) const { spng_ctx_free(ctx); }
 };
 
+struct TurboJpegDeleter {
+    void operator()(void* handle) const
+    {
+        if(handle != nullptr) {
+            tjDestroy(handle);
+        }
+    }
+};
+
 using SpngContextPtr = std::unique_ptr<spng_ctx, SpngContextDeleter>;
+using TurboJpegPtr = std::unique_ptr<void, TurboJpegDeleter>;
+
+[[nodiscard]] std::optional<std::size_t> decoded_rgba_size(std::uint32_t width, std::uint32_t height)
+{
+    if(width == 0 || height == 0) {
+        return std::nullopt;
+    }
+    const auto max = (std::numeric_limits<std::size_t>::max)();
+    if(static_cast<std::size_t>(width) > max / static_cast<std::size_t>(height)) {
+        return std::nullopt;
+    }
+    const auto pixels = static_cast<std::size_t>(width) * static_cast<std::size_t>(height);
+    if(pixels > kMaxDecodedImageBytes / 4) {
+        return std::nullopt;
+    }
+    return pixels * 4;
+}
+
+[[nodiscard]] std::optional<std::size_t> decoded_rgba_size(int width, int height)
+{
+    if(width <= 0 || height <= 0) {
+        return std::nullopt;
+    }
+    return decoded_rgba_size(static_cast<std::uint32_t>(width), static_cast<std::uint32_t>(height));
+}
+
+[[nodiscard]] std::optional<std::size_t> decoded_pixel_count(std::uint32_t width, std::uint32_t height)
+{
+    const auto rgba_size = decoded_rgba_size(width, height);
+    if(!rgba_size.has_value()) {
+        return std::nullopt;
+    }
+    return *rgba_size / 4;
+}
 
 [[nodiscard]] bool has_prefix(std::span<const unsigned char> data, std::span<const unsigned char> prefix)
 {
@@ -227,83 +271,72 @@ using SpngContextPtr = std::unique_ptr<spng_ctx, SpngContextDeleter>;
     return spng_decode_image(ctx.get(), output.data(), output.size(), SPNG_FMT_RGBA8, 0) == SPNG_OK;
 }
 
-#ifdef _MSC_VER
-#pragma warning(push)
-#pragma warning(disable: 4324 4611)
-#endif
-
-struct JpegErrorManager {
-    jpeg_error_mgr pub;
-    jmp_buf jump_buffer;
-};
-
-[[noreturn]] void jpeg_error_exit(j_common_ptr cinfo)
-{
-    auto* err = reinterpret_cast<JpegErrorManager*>(cinfo->err);
-    longjmp(err->jump_buffer, 1);
-}
-
 [[nodiscard]] bool validate_jpeg_decode(std::span<const unsigned char> data)
 {
-    JpegErrorManager error_mgr{};
-    jpeg_decompress_struct cinfo{};
-    cinfo.err = jpeg_std_error(&error_mgr.pub);
-    error_mgr.pub.error_exit = jpeg_error_exit;
-
-    if(setjmp(error_mgr.jump_buffer) != 0) {
-        jpeg_destroy_decompress(&cinfo);
+    if(data.size() > (std::numeric_limits<unsigned long>::max)()) {
         return false;
     }
 
-    jpeg_create_decompress(&cinfo);
-    jpeg_mem_src(&cinfo, data.data(), static_cast<unsigned long>(data.size()));
-    if(jpeg_read_header(&cinfo, TRUE) != JPEG_HEADER_OK) {
-        jpeg_destroy_decompress(&cinfo);
+    TurboJpegPtr handle{tjInitDecompress()};
+    if(!handle) {
         return false;
     }
-    if(!jpeg_start_decompress(&cinfo)) {
-        jpeg_destroy_decompress(&cinfo);
+
+    int width = 0;
+    int height = 0;
+    int subsampling = TJSAMP_UNKNOWN;
+    int colorspace = 0;
+    const auto jpeg_size = static_cast<unsigned long>(data.size());
+    if(tjDecompressHeader3(
+           handle.get(),
+           data.data(),
+           jpeg_size,
+           &width,
+           &height,
+           &subsampling,
+           &colorspace
+       ) != 0) {
         return false;
     }
-    const auto row_stride = static_cast<std::size_t>(cinfo.output_width)
-        * static_cast<std::size_t>(cinfo.output_components);
-    if(row_stride == 0 || row_stride > kMaxDecodedImageBytes) {
-        jpeg_destroy_decompress(&cinfo);
+
+    const auto image_size = decoded_rgba_size(width, height);
+    if(!image_size.has_value()) {
         return false;
     }
-    std::vector<unsigned char> scanline(row_stride);
-    while(cinfo.output_scanline < cinfo.output_height) {
-        JSAMPROW row = scanline.data();
-        if(jpeg_read_scanlines(&cinfo, &row, 1) != 1) {
-            jpeg_destroy_decompress(&cinfo);
-            return false;
-        }
-    }
-    if(!jpeg_finish_decompress(&cinfo)) {
-        jpeg_destroy_decompress(&cinfo);
-        return false;
-    }
-    jpeg_destroy_decompress(&cinfo);
-    return true;
+    std::vector<unsigned char> output(*image_size);
+    return tjDecompress2(
+        handle.get(),
+        data.data(),
+        jpeg_size,
+        output.data(),
+        width,
+        0,
+        height,
+        TJPF_RGBA,
+        TJFLAG_STOPONWARNING
+    ) == 0;
 }
-
-#ifdef _MSC_VER
-#pragma warning(pop)
-#endif
 
 [[nodiscard]] bool validate_webp_decode(std::span<const unsigned char> data)
 {
-    WebPDecoderConfig config;
-    if(WebPInitDecoderConfig(&config) == 0) {
+    int width = 0;
+    int height = 0;
+    if(WebPGetInfo(data.data(), data.size(), &width, &height) == 0) {
         return false;
     }
-    if(WebPGetInfo(data.data(), data.size(), nullptr, nullptr) == 0) {
-        WebPFreeDecBuffer(&config.output);
+
+    const auto image_size = decoded_rgba_size(width, height);
+    if(!image_size.has_value()) {
         return false;
     }
-    const VP8StatusCode status = WebPDecode(data.data(), data.size(), &config);
-    WebPFreeDecBuffer(&config.output);
-    return status == VP8_STATUS_OK;
+    std::vector<unsigned char> output(*image_size);
+    return WebPDecodeRGBAInto(
+        data.data(),
+        data.size(),
+        output.data(),
+        output.size(),
+        width * 4
+    ) != nullptr;
 }
 
 [[nodiscard]] bool skip_gif_color_table(
@@ -337,6 +370,130 @@ struct JpegErrorManager {
         index += block_size;
     }
     return false;
+}
+
+[[nodiscard]] std::optional<std::vector<unsigned char>> read_gif_sub_blocks(
+    std::span<const unsigned char> data,
+    std::size_t& index
+)
+{
+    std::vector<unsigned char> output;
+    while(index < data.size()) {
+        const auto block_size = static_cast<std::size_t>(data[index]);
+        ++index;
+        if(block_size == 0) {
+            return output;
+        }
+        if(block_size > data.size() - index) {
+            return std::nullopt;
+        }
+        const auto block = data.subspan(index, block_size);
+        output.insert(output.end(), block.begin(), block.end());
+        index += block_size;
+    }
+    return std::nullopt;
+}
+
+class GifBitReader {
+  public:
+    explicit GifBitReader(std::span<const unsigned char> data) : data_{data} {}
+
+    [[nodiscard]] std::optional<std::uint16_t> read(std::uint8_t bit_count)
+    {
+        if(bit_count == 0 || bit_count > 12) {
+            return std::nullopt;
+        }
+        std::uint16_t value = 0;
+        for(std::uint8_t bit = 0; bit < bit_count; ++bit) {
+            if(bit_index_ / 8 >= data_.size()) {
+                return std::nullopt;
+            }
+            const auto byte = data_[bit_index_ / 8];
+            value |= static_cast<std::uint16_t>(((byte >> (bit_index_ % 8)) & 1) << bit);
+            ++bit_index_;
+        }
+        return value;
+    }
+
+  private:
+    std::span<const unsigned char> data_;
+    std::size_t bit_index_{};
+};
+
+[[nodiscard]] bool validate_gif_lzw_data(
+    std::span<const unsigned char> data,
+    unsigned char min_code_size,
+    std::size_t expected_pixels
+)
+{
+    if(min_code_size < 2 || min_code_size > 8 || expected_pixels == 0) {
+        return false;
+    }
+
+    std::array<std::uint32_t, 4096> code_lengths{};
+    const auto clear_code = static_cast<std::uint16_t>(1u << min_code_size);
+    const auto end_code = static_cast<std::uint16_t>(clear_code + 1);
+    auto next_code = static_cast<std::uint16_t>(end_code + 1);
+    auto code_size = static_cast<std::uint8_t>(min_code_size + 1);
+    std::optional<std::uint32_t> previous_length;
+
+    const auto reset_table = [&]() {
+        code_lengths.fill(0);
+        for(std::uint16_t code = 0; code < clear_code; ++code) {
+            code_lengths[code] = 1;
+        }
+        next_code = static_cast<std::uint16_t>(end_code + 1);
+        code_size = static_cast<std::uint8_t>(min_code_size + 1);
+        previous_length = std::nullopt;
+    };
+
+    reset_table();
+    GifBitReader reader{data};
+    bool saw_clear = false;
+    std::size_t decoded_pixels = 0;
+
+    while(true) {
+        const auto code = reader.read(code_size);
+        if(!code.has_value()) {
+            return false;
+        }
+        if(*code == clear_code) {
+            reset_table();
+            saw_clear = true;
+            continue;
+        }
+        if(!saw_clear) {
+            return false;
+        }
+        if(*code == end_code) {
+            return decoded_pixels == expected_pixels;
+        }
+
+        std::uint32_t entry_length = 0;
+        if(*code < clear_code) {
+            entry_length = 1;
+        } else if(*code < next_code && code_lengths[*code] != 0) {
+            entry_length = code_lengths[*code];
+        } else if(previous_length.has_value() && *code == next_code) {
+            entry_length = *previous_length + 1;
+        } else {
+            return false;
+        }
+
+        if(entry_length > expected_pixels - decoded_pixels) {
+            return false;
+        }
+        decoded_pixels += entry_length;
+
+        if(previous_length.has_value() && next_code < code_lengths.size()) {
+            code_lengths[next_code] = *previous_length + 1;
+            ++next_code;
+            if(next_code == (1u << code_size) && code_size < 12) {
+                ++code_size;
+            }
+        }
+        previous_length = entry_length;
+    }
 }
 
 [[nodiscard]] bool validate_gif_structure(std::span<const unsigned char> data)
@@ -375,16 +532,20 @@ struct JpegErrorManager {
             }
             const auto width = read_le16(data, index + 4);
             const auto height = read_le16(data, index + 6);
+            const auto pixel_count = decoded_pixel_count(width, height);
             const auto packed = data[index + 8];
             index += 9;
-            if(width == 0 || height == 0 || !skip_gif_color_table(data, index, packed)) {
+            if(!pixel_count.has_value() || !skip_gif_color_table(data, index, packed)) {
                 return false;
             }
             if(index >= data.size()) {
                 return false;
             }
+            const auto min_code_size = data[index];
             ++index;
-            if(!skip_gif_sub_blocks(data, index)) {
+            const auto image_data = read_gif_sub_blocks(data, index);
+            if(!image_data.has_value()
+                || !validate_gif_lzw_data(*image_data, min_code_size, *pixel_count)) {
                 return false;
             }
             saw_image = true;

@@ -91,6 +91,20 @@ using blogalone::util::validate_image_decode;
     };
 }
 
+[[nodiscard]] std::vector<unsigned char> make_gif_with_invalid_lzw_data()
+{
+    return std::vector<unsigned char>{
+        'G', 'I', 'F', '8', '9', 'a',
+        0x01, 0x00, 0x01, 0x00, 0x80, 0x00, 0x00,
+        0xff, 0xff, 0xff,
+        0x00, 0x00, 0x00,
+        0x2c, 0x00, 0x00, 0x00, 0x00,
+        0x01, 0x00, 0x01, 0x00, 0x00,
+        0x02, 0x01, 0x00, 0x00,
+        0x3b
+    };
+}
+
 [[nodiscard]] std::vector<unsigned char> make_jpeg_header_only()
 {
     return std::vector<unsigned char>{
@@ -104,6 +118,24 @@ using blogalone::util::validate_image_decode;
         'R', 'I', 'F', 'F', 0x1a, 0x00, 0x00, 0x00,
         'W', 'E', 'B', 'P', 'V', 'P', '8', 'L',
         0x0e, 0x00, 0x00, 0x00, 0x2f, 0x01, 0x80, 0x00, 0x00
+    };
+}
+
+[[nodiscard]] std::vector<unsigned char> make_webp_extended_header(std::uint32_t width, std::uint32_t height)
+{
+    const auto stored_width = width - 1;
+    const auto stored_height = height - 1;
+    return std::vector<unsigned char>{
+        'R', 'I', 'F', 'F', 0x16, 0x00, 0x00, 0x00,
+        'W', 'E', 'B', 'P', 'V', 'P', '8', 'X',
+        0x0a, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00,
+        static_cast<unsigned char>(stored_width & 0xff),
+        static_cast<unsigned char>((stored_width >> 8) & 0xff),
+        static_cast<unsigned char>((stored_width >> 16) & 0xff),
+        static_cast<unsigned char>(stored_height & 0xff),
+        static_cast<unsigned char>((stored_height >> 8) & 0xff),
+        static_cast<unsigned char>((stored_height >> 16) & 0xff)
     };
 }
 
@@ -196,15 +228,46 @@ TEST(ImageDecodeTest, RejectsGifWithoutImageBlock)
     EXPECT_FALSE(validate_image_decode(as_bytes(data), ImageFormat::gif));
 }
 
+TEST(ImageDecodeTest, RejectsGifWithInvalidLzwData)
+{
+    const auto data = make_gif_with_invalid_lzw_data();
+    EXPECT_FALSE(validate_image_decode(as_bytes(data), ImageFormat::gif));
+}
+
 TEST(ImageDecodeTest, RejectsJpegHeaderOnly)
 {
     const auto data = make_jpeg_header_only();
     EXPECT_FALSE(validate_image_decode(as_bytes(data), ImageFormat::jpeg));
 }
 
+TEST(ImageDecodeTest, RejectsWebpAboveDecodedSizeLimit)
+{
+    const auto data = make_webp_extended_header(10'000, 10'000);
+    const auto info = probe_image(as_bytes(data));
+    ASSERT_TRUE(info.has_value());
+    EXPECT_EQ(info->format, ImageFormat::webp);
+    EXPECT_FALSE(validate_image_decode(as_bytes(data), ImageFormat::webp));
+}
+
 [[nodiscard]] std::string bytes_to_string(const std::vector<unsigned char>& data)
 {
     return std::string{data.begin(), data.end()};
+}
+
+[[nodiscard]] std::int64_t regular_file_count(const std::filesystem::path& root)
+{
+    std::error_code error;
+    if(!std::filesystem::exists(root, error)) {
+        return 0;
+    }
+
+    std::int64_t count = 0;
+    for(const auto& entry : std::filesystem::recursive_directory_iterator{root}) {
+        if(entry.is_regular_file()) {
+            ++count;
+        }
+    }
+    return count;
 }
 
 class TempWorkspace {
@@ -386,6 +449,36 @@ TEST_F(UploadServiceTest, EnforcesDailyQuota)
     ASSERT_TRUE(first.has_value());
     ASSERT_FALSE(second.has_value());
     EXPECT_EQ(second.error(), blogalone::services::UploadError::rate_limited);
+}
+
+TEST_F(UploadServiceTest, CleansCreatedFileWhenReferenceInsertFails)
+{
+    const auto owner = insert_user("alice");
+    client_->execSqlSync(
+        "CREATE TRIGGER fail_upload_ref BEFORE INSERT ON upload_refs "
+        "BEGIN "
+        "SELECT RAISE(ABORT, 'ref failed'); "
+        "END;"
+    );
+
+    EXPECT_THROW(
+        static_cast<void>(service_.store_image(
+            owner,
+            bytes_to_string(make_valid_1x1_png()),
+            1'700'000'000
+        )),
+        drogon::orm::DrogonDbException
+    );
+
+    const auto rows = client_->execSqlSync(
+        "SELECT "
+        "(SELECT COUNT(*) FROM uploads) AS upload_count, "
+        "(SELECT COUNT(*) FROM upload_refs) AS ref_count"
+    );
+    ASSERT_EQ(rows.size(), 1);
+    EXPECT_EQ(rows.at(0)["upload_count"].as<std::int64_t>(), 0);
+    EXPECT_EQ(rows.at(0)["ref_count"].as<std::int64_t>(), 0);
+    EXPECT_EQ(regular_file_count(workspace_.path() / "uploads"), 0);
 }
 
 }

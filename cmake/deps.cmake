@@ -66,9 +66,9 @@ blogalone_select_target(BLOGALONE_SPNG_TARGET
     spng::spng
 )
 
-blogalone_select_target(BLOGALONE_JPEG_TARGET
-    libjpeg-turbo::jpeg
-    JPEG::JPEG
+blogalone_select_target(BLOGALONE_TURBOJPEG_TARGET
+    libjpeg-turbo::turbojpeg
+    libjpeg-turbo::turbojpeg-static
 )
 
 blogalone_select_target(BLOGALONE_WEBP_TARGET
@@ -85,6 +85,6 @@ target_link_libraries(blogalone_backend_deps
         ${BLOGALONE_CMARK_GFM_TARGET}
         ${BLOGALONE_SPDLOG_TARGET}
         ${BLOGALONE_SPNG_TARGET}
-        ${BLOGALONE_JPEG_TARGET}
+        ${BLOGALONE_TURBOJPEG_TARGET}
         ${BLOGALONE_WEBP_TARGET}
 )
