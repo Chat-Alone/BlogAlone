@@ -489,7 +489,7 @@ void ForumRepository::refresh_thread_reply_summary(std::int64_t thread_id) const
     );
 }
 
-void ForumRepository::update_thread_content(
+bool ForumRepository::update_thread_content(
     std::int64_t thread_id,
     std::string_view title,
     std::string_view body_md,
@@ -497,76 +497,98 @@ void ForumRepository::update_thread_content(
     std::int64_t updated_at
 ) const
 {
-    client()->execSqlSync(
-        "UPDATE threads SET title = ?, body_md = ?, body_html = ?, updated_at = ? WHERE id = ?",
+    const auto result = client()->execSqlSync(
+        "UPDATE threads SET title = ?, body_md = ?, body_html = ?, updated_at = ? "
+        "WHERE id = ? AND is_deleted = 0",
         std::string{title},
         std::string{body_md},
         std::string{body_html},
         updated_at,
         thread_id
     );
+    return result.affectedRows() == 1;
 }
 
-void ForumRepository::update_post_content(
+bool ForumRepository::update_post_content(
     std::int64_t post_id,
     std::string_view body_md,
     std::string_view body_html,
     std::int64_t updated_at
 ) const
 {
-    client()->execSqlSync(
-        "UPDATE posts SET body_md = ?, body_html = ?, updated_at = ? WHERE id = ?",
+    const auto result = client()->execSqlSync(
+        "UPDATE posts SET body_md = ?, body_html = ?, updated_at = ? "
+        "WHERE id = ? AND is_deleted = 0 "
+        "AND EXISTS (SELECT 1 FROM threads WHERE id = posts.thread_id AND is_deleted = 0)",
         std::string{body_md},
         std::string{body_html},
         updated_at,
         post_id
     );
+    return result.affectedRows() == 1;
 }
 
-void ForumRepository::update_sub_post_content(
+bool ForumRepository::update_sub_post_content(
     std::int64_t sub_post_id,
     std::string_view body_md,
     std::string_view body_html,
     std::int64_t updated_at
 ) const
 {
-    client()->execSqlSync(
-        "UPDATE sub_posts SET body_md = ?, body_html = ?, updated_at = ? WHERE id = ?",
+    const auto result = client()->execSqlSync(
+        "UPDATE sub_posts SET body_md = ?, body_html = ?, updated_at = ? "
+        "WHERE id = ? AND is_deleted = 0 "
+        "AND EXISTS ("
+        "SELECT 1 FROM posts p JOIN threads t ON t.id = p.thread_id "
+        "WHERE p.id = sub_posts.post_id AND p.is_deleted = 0 AND t.is_deleted = 0"
+        ")",
         std::string{body_md},
         std::string{body_html},
         updated_at,
         sub_post_id
     );
+    return result.affectedRows() == 1;
 }
 
-void ForumRepository::soft_delete_thread(std::int64_t thread_id, std::int64_t deleted_at) const
+bool ForumRepository::soft_delete_thread(std::int64_t thread_id, std::int64_t deleted_at) const
 {
-    client()->execSqlSync(
-        "UPDATE threads SET is_deleted = 1, deleted_at = ?, updated_at = ? WHERE id = ?",
+    const auto result = client()->execSqlSync(
+        "UPDATE threads SET is_deleted = 1, deleted_at = ?, updated_at = ? "
+        "WHERE id = ? AND is_deleted = 0",
         deleted_at,
         deleted_at,
         thread_id
     );
+    return result.affectedRows() == 1;
 }
 
-void ForumRepository::soft_delete_post(std::int64_t post_id, std::int64_t deleted_at) const
+bool ForumRepository::soft_delete_post(std::int64_t post_id, std::int64_t deleted_at) const
 {
-    client()->execSqlSync(
-        "UPDATE posts SET is_deleted = 1, deleted_at = ?, updated_at = ? WHERE id = ?",
+    const auto result = client()->execSqlSync(
+        "UPDATE posts SET is_deleted = 1, deleted_at = ?, updated_at = ? "
+        "WHERE id = ? AND is_deleted = 0 "
+        "AND EXISTS (SELECT 1 FROM threads WHERE id = posts.thread_id AND is_deleted = 0)",
         deleted_at,
         deleted_at,
         post_id
     );
+    return result.affectedRows() == 1;
 }
 
-void ForumRepository::soft_delete_sub_post(std::int64_t sub_post_id, std::int64_t deleted_at) const
+bool ForumRepository::soft_delete_sub_post(std::int64_t sub_post_id, std::int64_t deleted_at) const
 {
-    client()->execSqlSync(
-        "UPDATE sub_posts SET is_deleted = 1, deleted_at = ?, updated_at = ? WHERE id = ?",
+    const auto result = client()->execSqlSync(
+        "UPDATE sub_posts SET is_deleted = 1, deleted_at = ?, updated_at = ? "
+        "WHERE id = ? AND is_deleted = 0 "
+        "AND EXISTS ("
+        "SELECT 1 FROM posts p JOIN threads t ON t.id = p.thread_id "
+        "WHERE p.id = sub_posts.post_id AND p.is_deleted = 0 AND t.is_deleted = 0"
+        ")",
         deleted_at,
         deleted_at,
         sub_post_id
     );
+    return result.affectedRows() == 1;
 }
 
 }

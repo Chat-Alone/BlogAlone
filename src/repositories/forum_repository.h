@@ -74,28 +74,28 @@ class ForumRepository {
         std::int64_t last_reply_at
     ) const;
     void refresh_thread_reply_summary(std::int64_t thread_id) const;
-    void update_thread_content(
+    [[nodiscard]] bool update_thread_content(
         std::int64_t thread_id,
         std::string_view title,
         std::string_view body_md,
         std::string_view body_html,
         std::int64_t updated_at
     ) const;
-    void update_post_content(
+    [[nodiscard]] bool update_post_content(
         std::int64_t post_id,
         std::string_view body_md,
         std::string_view body_html,
         std::int64_t updated_at
     ) const;
-    void update_sub_post_content(
+    [[nodiscard]] bool update_sub_post_content(
         std::int64_t sub_post_id,
         std::string_view body_md,
         std::string_view body_html,
         std::int64_t updated_at
     ) const;
-    void soft_delete_thread(std::int64_t thread_id, std::int64_t deleted_at) const;
-    void soft_delete_post(std::int64_t post_id, std::int64_t deleted_at) const;
-    void soft_delete_sub_post(std::int64_t sub_post_id, std::int64_t deleted_at) const;
+    [[nodiscard]] bool soft_delete_thread(std::int64_t thread_id, std::int64_t deleted_at) const;
+    [[nodiscard]] bool soft_delete_post(std::int64_t post_id, std::int64_t deleted_at) const;
+    [[nodiscard]] bool soft_delete_sub_post(std::int64_t sub_post_id, std::int64_t deleted_at) const;
 
   private:
     std::string db_client_name_;

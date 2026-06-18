@@ -407,7 +407,9 @@ ForumResult<models::Thread> ForumService::update_thread(
         return ForumError::forbidden;
     }
 
-    forum_repository_.update_thread_content(thread_id, title, body_md, render_basic_html(body_md), now);
+    if(!forum_repository_.update_thread_content(thread_id, title, body_md, render_basic_html(body_md), now)) {
+        return ForumError::not_found;
+    }
     const auto updated = forum_repository_.find_thread(thread_id);
     if(!updated.has_value()) {
         return ForumError::not_found;
@@ -433,7 +435,9 @@ ForumResult<DeleteResult> ForumService::delete_thread(
         return ForumError::forbidden;
     }
 
-    forum_repository_.soft_delete_thread(thread_id, now);
+    if(!forum_repository_.soft_delete_thread(thread_id, now)) {
+        return ForumError::not_found;
+    }
     return DeleteResult{};
 }
 
@@ -514,7 +518,9 @@ ForumResult<models::PostWithReplies> ForumService::update_post(
         return ForumError::forbidden;
     }
 
-    forum_repository_.update_post_content(post_id, body_md, render_basic_html(body_md), now);
+    if(!forum_repository_.update_post_content(post_id, body_md, render_basic_html(body_md), now)) {
+        return ForumError::not_found;
+    }
     const auto updated = forum_repository_.find_post(post_id);
     if(!updated.has_value()) {
         return ForumError::not_found;
@@ -542,7 +548,9 @@ ForumResult<DeleteResult> ForumService::delete_post(
 
     DbTransaction transaction{forum_repository_.client()};
     const repositories::ForumRepository repository{transaction.client()};
-    repository.soft_delete_post(post_id, now);
+    if(!repository.soft_delete_post(post_id, now)) {
+        return ForumError::not_found;
+    }
     repository.refresh_thread_reply_summary(post->thread_id);
     transaction.commit();
     return DeleteResult{};
@@ -617,7 +625,9 @@ ForumResult<models::SubPost> ForumService::update_sub_post(
         return ForumError::forbidden;
     }
 
-    forum_repository_.update_sub_post_content(sub_post_id, body_md, render_basic_html(body_md), now);
+    if(!forum_repository_.update_sub_post_content(sub_post_id, body_md, render_basic_html(body_md), now)) {
+        return ForumError::not_found;
+    }
     const auto updated = forum_repository_.find_sub_post(sub_post_id);
     if(!updated.has_value()) {
         return ForumError::not_found;
@@ -645,7 +655,9 @@ ForumResult<DeleteResult> ForumService::delete_sub_post(
 
     DbTransaction transaction{forum_repository_.client()};
     const repositories::ForumRepository repository{transaction.client()};
-    repository.soft_delete_sub_post(sub_post_id, now);
+    if(!repository.soft_delete_sub_post(sub_post_id, now)) {
+        return ForumError::not_found;
+    }
     repository.refresh_thread_reply_summary(sub_post->thread_id);
     transaction.commit();
     return DeleteResult{};

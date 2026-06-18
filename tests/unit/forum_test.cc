@@ -526,6 +526,173 @@ TEST_F(ForumServiceTest, RollsBackSubPostWhenPostIsDeletedDuringCreate)
     EXPECT_EQ(rows.at(0)["sub_post_count"].as<std::int64_t>(), 0);
 }
 
+TEST_F(ForumServiceTest, RepositoryRefusesUpdatesForHiddenContent)
+{
+    const blogalone::repositories::ForumRepository repository{client_};
+    const auto author_id = insert_user("hidden_update_author");
+    static_cast<void>(insert_forum("general"));
+
+    const auto hidden_thread = create_thread(author_id, "general", 20);
+    ASSERT_TRUE(hidden_thread.has_value());
+    client_->execSqlSync("UPDATE threads SET is_deleted = 1 WHERE id = ?", hidden_thread->id);
+
+    EXPECT_FALSE(repository.update_thread_content(
+        hidden_thread->id,
+        "Changed title",
+        "Changed body",
+        "<p>Changed body</p>",
+        21
+    ));
+    const auto thread_rows = client_->execSqlSync(
+        "SELECT title, body_md FROM threads WHERE id = ?",
+        hidden_thread->id
+    );
+    ASSERT_EQ(thread_rows.size(), 1);
+    EXPECT_EQ(thread_rows.at(0)["title"].as<std::string>(), "Hello thread");
+    EXPECT_EQ(thread_rows.at(0)["body_md"].as<std::string>(), "First body");
+
+    const auto thread_with_hidden_parent = create_thread(author_id, "general", 30);
+    ASSERT_TRUE(thread_with_hidden_parent.has_value());
+    const auto post = service_.create_post(
+        author_id,
+        blogalone::services::CreatePostRequest{
+            .thread_id = thread_with_hidden_parent->id,
+            .body_md = "floor reply"
+        },
+        31
+    );
+    ASSERT_TRUE(post.has_value());
+    client_->execSqlSync(
+        "UPDATE threads SET is_deleted = 1 WHERE id = ?",
+        thread_with_hidden_parent->id
+    );
+
+    EXPECT_FALSE(repository.update_post_content(
+        post->post.id,
+        "Changed floor",
+        "<p>Changed floor</p>",
+        32
+    ));
+    const auto post_rows = client_->execSqlSync(
+        "SELECT body_md FROM posts WHERE id = ?",
+        post->post.id
+    );
+    ASSERT_EQ(post_rows.size(), 1);
+    EXPECT_EQ(post_rows.at(0)["body_md"].as<std::string>(), "floor reply");
+
+    const auto nested_thread = create_thread(author_id, "general", 40);
+    ASSERT_TRUE(nested_thread.has_value());
+    const auto visible_post = service_.create_post(
+        author_id,
+        blogalone::services::CreatePostRequest{
+            .thread_id = nested_thread->id,
+            .body_md = "visible floor"
+        },
+        41
+    );
+    ASSERT_TRUE(visible_post.has_value());
+    const auto sub_post = service_.create_sub_post(
+        author_id,
+        blogalone::services::CreateSubPostRequest{
+            .post_id = visible_post->post.id,
+            .body_md = "nested reply",
+            .reply_to_user_id = std::nullopt
+        },
+        42
+    );
+    ASSERT_TRUE(sub_post.has_value());
+    client_->execSqlSync("UPDATE posts SET is_deleted = 1 WHERE id = ?", visible_post->post.id);
+
+    EXPECT_FALSE(repository.update_sub_post_content(
+        sub_post->id,
+        "Changed nested",
+        "<p>Changed nested</p>",
+        43
+    ));
+    const auto sub_post_rows = client_->execSqlSync(
+        "SELECT body_md FROM sub_posts WHERE id = ?",
+        sub_post->id
+    );
+    ASSERT_EQ(sub_post_rows.size(), 1);
+    EXPECT_EQ(sub_post_rows.at(0)["body_md"].as<std::string>(), "nested reply");
+}
+
+TEST_F(ForumServiceTest, RepositoryRefusesDeletesForHiddenContent)
+{
+    const blogalone::repositories::ForumRepository repository{client_};
+    const auto author_id = insert_user("hidden_delete_author");
+    static_cast<void>(insert_forum("general"));
+
+    const auto hidden_thread = create_thread(author_id, "general", 20);
+    ASSERT_TRUE(hidden_thread.has_value());
+    client_->execSqlSync("UPDATE threads SET is_deleted = 1 WHERE id = ?", hidden_thread->id);
+
+    EXPECT_FALSE(repository.soft_delete_thread(hidden_thread->id, 21));
+    const auto thread_rows = client_->execSqlSync(
+        "SELECT deleted_at FROM threads WHERE id = ?",
+        hidden_thread->id
+    );
+    ASSERT_EQ(thread_rows.size(), 1);
+    EXPECT_TRUE(thread_rows.at(0)["deleted_at"].isNull());
+
+    const auto thread_with_hidden_parent = create_thread(author_id, "general", 30);
+    ASSERT_TRUE(thread_with_hidden_parent.has_value());
+    const auto post = service_.create_post(
+        author_id,
+        blogalone::services::CreatePostRequest{
+            .thread_id = thread_with_hidden_parent->id,
+            .body_md = "floor reply"
+        },
+        31
+    );
+    ASSERT_TRUE(post.has_value());
+    client_->execSqlSync(
+        "UPDATE threads SET is_deleted = 1 WHERE id = ?",
+        thread_with_hidden_parent->id
+    );
+
+    EXPECT_FALSE(repository.soft_delete_post(post->post.id, 32));
+    const auto post_rows = client_->execSqlSync(
+        "SELECT is_deleted, deleted_at FROM posts WHERE id = ?",
+        post->post.id
+    );
+    ASSERT_EQ(post_rows.size(), 1);
+    EXPECT_EQ(post_rows.at(0)["is_deleted"].as<int>(), 0);
+    EXPECT_TRUE(post_rows.at(0)["deleted_at"].isNull());
+
+    const auto nested_thread = create_thread(author_id, "general", 40);
+    ASSERT_TRUE(nested_thread.has_value());
+    const auto visible_post = service_.create_post(
+        author_id,
+        blogalone::services::CreatePostRequest{
+            .thread_id = nested_thread->id,
+            .body_md = "visible floor"
+        },
+        41
+    );
+    ASSERT_TRUE(visible_post.has_value());
+    const auto sub_post = service_.create_sub_post(
+        author_id,
+        blogalone::services::CreateSubPostRequest{
+            .post_id = visible_post->post.id,
+            .body_md = "nested reply",
+            .reply_to_user_id = std::nullopt
+        },
+        42
+    );
+    ASSERT_TRUE(sub_post.has_value());
+    client_->execSqlSync("UPDATE posts SET is_deleted = 1 WHERE id = ?", visible_post->post.id);
+
+    EXPECT_FALSE(repository.soft_delete_sub_post(sub_post->id, 43));
+    const auto sub_post_rows = client_->execSqlSync(
+        "SELECT is_deleted, deleted_at FROM sub_posts WHERE id = ?",
+        sub_post->id
+    );
+    ASSERT_EQ(sub_post_rows.size(), 1);
+    EXPECT_EQ(sub_post_rows.at(0)["is_deleted"].as<int>(), 0);
+    EXPECT_TRUE(sub_post_rows.at(0)["deleted_at"].isNull());
+}
+
 TEST_F(ForumServiceTest, RejectsInvalidForumAndBodyInputs)
 {
     const auto author_id = insert_user("invalid_input_author");
