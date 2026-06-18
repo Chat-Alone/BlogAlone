@@ -367,6 +367,7 @@ ForumResult<models::Thread> ForumService::create_thread(
         return ForumError::not_found;
     }
 
+    const auto body_html = render_basic_html(body_md);
     DbTransaction transaction{forum_repository_.client()};
     const repositories::ForumRepository repository{transaction.client()};
     const auto thread_id = repository.create_thread(
@@ -374,7 +375,7 @@ ForumResult<models::Thread> ForumService::create_thread(
         author_id,
         title,
         body_md,
-        render_basic_html(body_md),
+        body_html,
         now
     );
     auto thread = repository.find_thread(thread_id);
@@ -407,7 +408,8 @@ ForumResult<models::Thread> ForumService::update_thread(
         return ForumError::forbidden;
     }
 
-    if(!forum_repository_.update_thread_content(thread_id, title, body_md, render_basic_html(body_md), now)) {
+    const auto body_html = render_basic_html(body_md);
+    if(!forum_repository_.update_thread_content(thread_id, title, body_md, body_html, now)) {
         return ForumError::not_found;
     }
     const auto updated = forum_repository_.find_thread(thread_id);
@@ -455,6 +457,7 @@ ForumResult<models::PostWithReplies> ForumService::create_post(
         return *error;
     }
 
+    const auto body_html = render_basic_html(body_md);
     for(int attempt = 0; attempt < kPostFloorRetryCount; ++attempt) {
         try {
             DbTransaction transaction{forum_repository_.client()};
@@ -468,7 +471,7 @@ ForumResult<models::PostWithReplies> ForumService::create_post(
                 author_id,
                 floor_no,
                 body_md,
-                render_basic_html(body_md),
+                body_html,
                 now
             );
             if(!post_id.has_value()) {
@@ -518,7 +521,8 @@ ForumResult<models::PostWithReplies> ForumService::update_post(
         return ForumError::forbidden;
     }
 
-    if(!forum_repository_.update_post_content(post_id, body_md, render_basic_html(body_md), now)) {
+    const auto body_html = render_basic_html(body_md);
+    if(!forum_repository_.update_post_content(post_id, body_md, body_html, now)) {
         return ForumError::not_found;
     }
     const auto updated = forum_repository_.find_post(post_id);
@@ -576,6 +580,7 @@ ForumResult<models::SubPost> ForumService::create_sub_post(
         return ForumError::not_found;
     }
 
+    const auto body_html = render_basic_html(body_md);
     DbTransaction transaction{forum_repository_.client()};
     const repositories::ForumRepository repository{transaction.client()};
     const auto post = repository.find_post(request.post_id);
@@ -586,7 +591,7 @@ ForumResult<models::SubPost> ForumService::create_sub_post(
         request.post_id,
         author_id,
         body_md,
-        render_basic_html(body_md),
+        body_html,
         request.reply_to_user_id,
         now
     );
@@ -625,7 +630,8 @@ ForumResult<models::SubPost> ForumService::update_sub_post(
         return ForumError::forbidden;
     }
 
-    if(!forum_repository_.update_sub_post_content(sub_post_id, body_md, render_basic_html(body_md), now)) {
+    const auto body_html = render_basic_html(body_md);
+    if(!forum_repository_.update_sub_post_content(sub_post_id, body_md, body_html, now)) {
         return ForumError::not_found;
     }
     const auto updated = forum_repository_.find_sub_post(sub_post_id);

@@ -340,7 +340,7 @@ std::optional<std::int64_t> ForumRepository::create_post(
     const auto rows = client()->execSqlSync(
         "INSERT INTO posts (thread_id, author_id, floor_no, body_md, body_html, created_at, updated_at) "
         "SELECT ?, ?, ?, ?, ?, ?, ? "
-        "WHERE EXISTS (SELECT 1 FROM threads WHERE id = ? AND is_deleted = 0) "
+        "WHERE EXISTS (SELECT 1 FROM threads WHERE threads.id = ? AND threads.is_deleted = 0) "
         "RETURNING id",
         thread_id,
         author_id,
@@ -420,7 +420,7 @@ bool ForumRepository::increment_thread_reply_count(
 {
     const auto result = client()->execSqlSync(
         "UPDATE threads SET reply_count = reply_count + 1, last_reply_at = ?, "
-        "last_reply_user_id = ? WHERE id = ? AND is_deleted = 0",
+        "last_reply_user_id = ? WHERE threads.id = ? AND threads.is_deleted = 0",
         last_reply_at,
         last_reply_user_id,
         thread_id
@@ -437,9 +437,10 @@ bool ForumRepository::update_thread_last_reply(
 {
     const auto result = client()->execSqlSync(
         "UPDATE threads SET last_reply_at = ?, last_reply_user_id = ? "
-        "WHERE id = ? AND is_deleted = 0 "
+        "WHERE threads.id = ? AND threads.is_deleted = 0 "
         "AND EXISTS ("
-        "SELECT 1 FROM posts WHERE id = ? AND thread_id = ? AND is_deleted = 0"
+        "SELECT 1 FROM posts "
+        "WHERE posts.id = ? AND posts.thread_id = ? AND posts.is_deleted = 0"
         ")",
         last_reply_at,
         last_reply_user_id,
@@ -481,7 +482,8 @@ void ForumRepository::refresh_thread_reply_summary(std::int64_t thread_id) const
     }
 
     db->execSqlSync(
-        "UPDATE threads SET reply_count = ?, last_reply_at = ?, last_reply_user_id = ? WHERE id = ?",
+        "UPDATE threads SET reply_count = ?, last_reply_at = ?, last_reply_user_id = ? "
+        "WHERE threads.id = ?",
         count_rows.at(0)["count"].as<std::int64_t>(),
         activity_rows.at(0)["activity_at"].as<std::int64_t>(),
         activity_rows.at(0)["user_id"].as<std::int64_t>(),
@@ -499,7 +501,7 @@ bool ForumRepository::update_thread_content(
 {
     const auto result = client()->execSqlSync(
         "UPDATE threads SET title = ?, body_md = ?, body_html = ?, updated_at = ? "
-        "WHERE id = ? AND is_deleted = 0",
+        "WHERE threads.id = ? AND threads.is_deleted = 0",
         std::string{title},
         std::string{body_md},
         std::string{body_html},
@@ -518,8 +520,11 @@ bool ForumRepository::update_post_content(
 {
     const auto result = client()->execSqlSync(
         "UPDATE posts SET body_md = ?, body_html = ?, updated_at = ? "
-        "WHERE id = ? AND is_deleted = 0 "
-        "AND EXISTS (SELECT 1 FROM threads WHERE id = posts.thread_id AND is_deleted = 0)",
+        "WHERE posts.id = ? AND posts.is_deleted = 0 "
+        "AND EXISTS ("
+        "SELECT 1 FROM threads "
+        "WHERE threads.id = posts.thread_id AND threads.is_deleted = 0"
+        ")",
         std::string{body_md},
         std::string{body_html},
         updated_at,
@@ -537,7 +542,7 @@ bool ForumRepository::update_sub_post_content(
 {
     const auto result = client()->execSqlSync(
         "UPDATE sub_posts SET body_md = ?, body_html = ?, updated_at = ? "
-        "WHERE id = ? AND is_deleted = 0 "
+        "WHERE sub_posts.id = ? AND sub_posts.is_deleted = 0 "
         "AND EXISTS ("
         "SELECT 1 FROM posts p JOIN threads t ON t.id = p.thread_id "
         "WHERE p.id = sub_posts.post_id AND p.is_deleted = 0 AND t.is_deleted = 0"
@@ -554,7 +559,7 @@ bool ForumRepository::soft_delete_thread(std::int64_t thread_id, std::int64_t de
 {
     const auto result = client()->execSqlSync(
         "UPDATE threads SET is_deleted = 1, deleted_at = ?, updated_at = ? "
-        "WHERE id = ? AND is_deleted = 0",
+        "WHERE threads.id = ? AND threads.is_deleted = 0",
         deleted_at,
         deleted_at,
         thread_id
@@ -566,8 +571,11 @@ bool ForumRepository::soft_delete_post(std::int64_t post_id, std::int64_t delete
 {
     const auto result = client()->execSqlSync(
         "UPDATE posts SET is_deleted = 1, deleted_at = ?, updated_at = ? "
-        "WHERE id = ? AND is_deleted = 0 "
-        "AND EXISTS (SELECT 1 FROM threads WHERE id = posts.thread_id AND is_deleted = 0)",
+        "WHERE posts.id = ? AND posts.is_deleted = 0 "
+        "AND EXISTS ("
+        "SELECT 1 FROM threads "
+        "WHERE threads.id = posts.thread_id AND threads.is_deleted = 0"
+        ")",
         deleted_at,
         deleted_at,
         post_id
@@ -579,7 +587,7 @@ bool ForumRepository::soft_delete_sub_post(std::int64_t sub_post_id, std::int64_
 {
     const auto result = client()->execSqlSync(
         "UPDATE sub_posts SET is_deleted = 1, deleted_at = ?, updated_at = ? "
-        "WHERE id = ? AND is_deleted = 0 "
+        "WHERE sub_posts.id = ? AND sub_posts.is_deleted = 0 "
         "AND EXISTS ("
         "SELECT 1 FROM posts p JOIN threads t ON t.id = p.thread_id "
         "WHERE p.id = sub_posts.post_id AND p.is_deleted = 0 AND t.is_deleted = 0"
