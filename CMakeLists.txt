@@ -58,6 +58,7 @@ add_library(blogalone_core STATIC
     src/controllers/forum_controller.cc
     src/controllers/health_controller.cc
     src/controllers/page_controller.cc
+    src/controllers/upload_controller.cc
     src/db/migrations.cc
     src/filters/csrf_filter.cc
     src/filters/session_filter.cc
@@ -71,11 +72,15 @@ add_library(blogalone_core STATIC
     src/repositories/forum_repository.cc
     src/repositories/health_repository.cc
     src/repositories/session_repository.cc
+    src/repositories/upload_repository.cc
     src/repositories/user_repository.cc
     src/services/auth_service.cc
     src/services/forum_service.cc
     src/services/health_service.cc
+    src/services/upload_service.cc
     src/util/crypto.cc
+    src/util/image.cc
+    src/util/markdown.cc
     src/util/password.cc
     src/util/time.cc
 )
@@ -125,7 +130,9 @@ if(BUILD_TESTING)
         tests/unit/deps_smoke_test.cc
         tests/unit/forum_test.cc
         tests/unit/infrastructure_test.cc
+        tests/unit/markdown_test.cc
         tests/unit/migration_runner_test.cc
+        tests/unit/upload_test.cc
     )
     target_link_libraries(blogalone_unit_tests
         PRIVATE

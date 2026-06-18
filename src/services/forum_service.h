@@ -2,6 +2,7 @@
 
 #include "models/forum.h"
 #include "repositories/forum_repository.h"
+#include "repositories/upload_repository.h"
 #include "repositories/user_repository.h"
 
 #include <cstdint>
@@ -99,7 +100,8 @@ class ForumService {
   public:
     explicit ForumService(
         repositories::ForumRepository forum_repository = repositories::ForumRepository{},
-        repositories::UserRepository user_repository = repositories::UserRepository{}
+        repositories::UserRepository user_repository = repositories::UserRepository{},
+        repositories::UploadRepository upload_repository = repositories::UploadRepository{}
     );
 
     [[nodiscard]] std::vector<models::Forum> list_forums() const;
@@ -161,8 +163,15 @@ class ForumService {
     ) const;
 
   private:
+    [[nodiscard]] std::string render_and_bind(
+        std::int64_t author_id,
+        std::string_view body_md,
+        std::int64_t now
+    ) const;
+
     repositories::ForumRepository forum_repository_;
     repositories::UserRepository user_repository_;
+    repositories::UploadRepository upload_repository_;
 };
 
 }

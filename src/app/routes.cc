@@ -4,6 +4,7 @@
 #include "controllers/forum_controller.h"
 #include "controllers/health_controller.h"
 #include "controllers/page_controller.h"
+#include "controllers/upload_controller.h"
 #include "filters/csrf_filter.h"
 #include "http/api_error.h"
 #include "http/request_context.h"
@@ -36,6 +37,7 @@ void register_routes()
     controllers::register_page_routes();
     controllers::register_auth_routes();
     controllers::register_forum_routes();
+    controllers::register_upload_routes();
 }
 
 }

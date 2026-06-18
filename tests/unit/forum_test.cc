@@ -167,7 +167,7 @@ TEST_F(ForumServiceTest, CreatesThreadAndListsIt)
     const auto created = create_thread(author_id, "general", 20);
     ASSERT_TRUE(created.has_value());
     EXPECT_EQ(created->title, "Hello thread");
-    EXPECT_EQ(created->body_html, "<p>First body</p>");
+    EXPECT_EQ(created->body_html, "<p>First body</p>\n");
     EXPECT_EQ(created->last_reply_at, std::optional<std::int64_t>{20});
     EXPECT_EQ(created->last_reply_user_id, std::optional<std::int64_t>{author_id});
 
@@ -1014,11 +1014,11 @@ TEST_F(ForumServiceTest, AllowsOnlyOwnersToEditAndDeleteReplies)
     ASSERT_FALSE(forbidden_post_update.has_value());
     EXPECT_EQ(forbidden_post_update.error(), blogalone::services::ForumError::forbidden);
     ASSERT_TRUE(updated_post.has_value());
-    EXPECT_EQ(updated_post->post.body_html, "<p>updated floor</p>");
+    EXPECT_EQ(updated_post->post.body_html, "<p>updated floor</p>\n");
     ASSERT_FALSE(forbidden_sub_update.has_value());
     EXPECT_EQ(forbidden_sub_update.error(), blogalone::services::ForumError::forbidden);
     ASSERT_TRUE(updated_sub.has_value());
-    EXPECT_EQ(updated_sub->body_html, "<p>updated nested</p>");
+    EXPECT_EQ(updated_sub->body_html, "<p>updated nested</p>\n");
 
     const auto forbidden_post_delete = service_.delete_post(other_id, post->post.id, 66);
     const auto forbidden_sub_delete = service_.delete_sub_post(author_id, sub_post->id, 67);
@@ -1062,7 +1062,7 @@ TEST_F(ForumServiceTest, AllowsOnlyOwnersToEditAndDeleteContent)
     );
     ASSERT_TRUE(updated.has_value());
     EXPECT_EQ(updated->title, "Updated title");
-    EXPECT_EQ(updated->body_html, "<p>Updated body</p>");
+    EXPECT_EQ(updated->body_html, "<p>Updated body</p>\n");
 
     const auto forbidden_delete = service_.delete_thread(other_id, thread->id, 52);
     ASSERT_FALSE(forbidden_delete.has_value());

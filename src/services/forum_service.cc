@@ -1,5 +1,7 @@
 #include "services/forum_service.h"
 
+#include "util/markdown.h"
+
 #include <drogon/orm/Exception.h>
 
 #include <algorithm>
@@ -11,6 +13,7 @@
 #include <stdexcept>
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace blogalone::services {
 namespace {
@@ -166,43 +169,13 @@ class DbTransaction {
     return length.has_value() && *length > 0 && *length <= kMaxThreadTitleLength;
 }
 
-[[nodiscard]] std::string escape_html(std::string_view value)
+[[nodiscard]] std::optional<std::string> station_upload_path(std::string_view url)
 {
-    std::string output;
-    output.reserve(value.size());
-    for(const auto ch : value) {
-        switch(ch) {
-        case '&':
-            output += "&amp;";
-            break;
-        case '<':
-            output += "&lt;";
-            break;
-        case '>':
-            output += "&gt;";
-            break;
-        case '"':
-            output += "&quot;";
-            break;
-        case '\'':
-            output += "&#39;";
-            break;
-        case '\r':
-            break;
-        case '\n':
-            output += "<br>";
-            break;
-        default:
-            output.push_back(ch);
-            break;
-        }
+    constexpr std::string_view prefix{"/uploads/"};
+    if(!url.starts_with(prefix)) {
+        return std::nullopt;
     }
-    return output;
-}
-
-[[nodiscard]] std::string render_basic_html(std::string_view markdown)
-{
-    return "<p>" + escape_html(markdown) + "</p>";
+    return std::string{url.substr(prefix.size())};
 }
 
 [[nodiscard]] bool is_unique_violation(const drogon::orm::DrogonDbException& error)
@@ -287,11 +260,36 @@ std::string_view to_string(ForumError error)
 
 ForumService::ForumService(
     repositories::ForumRepository forum_repository,
-    repositories::UserRepository user_repository
+    repositories::UserRepository user_repository,
+    repositories::UploadRepository upload_repository
 )
     : forum_repository_{std::move(forum_repository)}
     , user_repository_{std::move(user_repository)}
+    , upload_repository_{std::move(upload_repository)}
 {
+}
+
+std::string ForumService::render_and_bind(
+    std::int64_t author_id,
+    std::string_view body_md,
+    std::int64_t now
+) const
+{
+    std::vector<std::string> referenced_paths;
+    const util::ImageUrlPredicate predicate = [this, author_id, &referenced_paths](std::string_view url) {
+        const auto path = station_upload_path(url);
+        if(!path.has_value() || !upload_repository_.owner_has_upload_path(author_id, *path)) {
+            return false;
+        }
+        referenced_paths.push_back(*path);
+        return true;
+    };
+
+    auto body_html = util::render_markdown(body_md, predicate);
+    for(const auto& path : referenced_paths) {
+        upload_repository_.mark_ref_attached(author_id, path, now);
+    }
+    return body_html;
 }
 
 std::vector<models::Forum> ForumService::list_forums() const
@@ -367,7 +365,7 @@ ForumResult<models::Thread> ForumService::create_thread(
         return ForumError::not_found;
     }
 
-    const auto body_html = render_basic_html(body_md);
+    const auto body_html = render_and_bind(author_id, body_md, now);
     DbTransaction transaction{forum_repository_.client()};
     const repositories::ForumRepository repository{transaction.client()};
     const auto thread_id = repository.create_thread(
@@ -408,7 +406,7 @@ ForumResult<models::Thread> ForumService::update_thread(
         return ForumError::forbidden;
     }
 
-    const auto body_html = render_basic_html(body_md);
+    const auto body_html = render_and_bind(user_id, body_md, now);
     if(!forum_repository_.update_thread_content(thread_id, title, body_md, body_html, now)) {
         return ForumError::not_found;
     }
@@ -457,7 +455,7 @@ ForumResult<models::PostWithReplies> ForumService::create_post(
         return *error;
     }
 
-    const auto body_html = render_basic_html(body_md);
+    const auto body_html = render_and_bind(author_id, body_md, now);
     for(int attempt = 0; attempt < kPostFloorRetryCount; ++attempt) {
         try {
             DbTransaction transaction{forum_repository_.client()};
@@ -521,7 +519,7 @@ ForumResult<models::PostWithReplies> ForumService::update_post(
         return ForumError::forbidden;
     }
 
-    const auto body_html = render_basic_html(body_md);
+    const auto body_html = render_and_bind(user_id, body_md, now);
     if(!forum_repository_.update_post_content(post_id, body_md, body_html, now)) {
         return ForumError::not_found;
     }
@@ -580,7 +578,7 @@ ForumResult<models::SubPost> ForumService::create_sub_post(
         return ForumError::not_found;
     }
 
-    const auto body_html = render_basic_html(body_md);
+    const auto body_html = render_and_bind(author_id, body_md, now);
     DbTransaction transaction{forum_repository_.client()};
     const repositories::ForumRepository repository{transaction.client()};
     const auto post = repository.find_post(request.post_id);
@@ -630,7 +628,7 @@ ForumResult<models::SubPost> ForumService::update_sub_post(
         return ForumError::forbidden;
     }
 
-    const auto body_html = render_basic_html(body_md);
+    const auto body_html = render_and_bind(user_id, body_md, now);
     if(!forum_repository_.update_sub_post_content(sub_post_id, body_md, body_html, now)) {
         return ForumError::not_found;
     }
