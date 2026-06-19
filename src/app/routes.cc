@@ -8,6 +8,7 @@
 #include "controllers/upload_controller.h"
 #include "filters/csrf_filter.h"
 #include "http/api_error.h"
+#include "http/client_ip.h"
 #include "http/request_context.h"
 
 #include <drogon/drogon.h>
@@ -19,6 +20,7 @@ namespace blogalone {
 void register_routes()
 {
     http::install_request_context_advice();
+    http::install_client_ip_advice();
     filters::install_csrf_guard_advice();
     drogon::app().setCustomErrorHandler(
         [](drogon::HttpStatusCode status, const drogon::HttpRequestPtr& request) {

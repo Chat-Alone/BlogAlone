@@ -3,9 +3,11 @@
 #include "config/app_config.h"
 #include "filters/session_filter.h"
 #include "http/api_error.h"
+#include "http/client_ip.h"
 #include "http/handler_guard.h"
 #include "http/request_context.h"
 #include "http/session_context.h"
+#include "security/rate_limiter.h"
 #include "services/upload_service.h"
 #include "util/time.h"
 
@@ -74,6 +76,17 @@ void handle_create_upload(const drogon::HttpRequestPtr& request, const HttpCallb
         return;
     }
 
+    const auto app_config = config::app_config_from_drogon();
+    if(!security::request_rate_limiter().consume(
+        security::RateLimitScope::upload,
+        http::client_ip_from(request),
+        user_id,
+        app_config.rate_limits.upload
+    )) {
+        callback(error_response(request, http::ErrorCode::rate_limited, "rate limit exceeded"));
+        return;
+    }
+
     drogon::MultiPartParser parser;
     if(parser.parse(request) != 0 || parser.getFiles().size() != 1) {
         callback(error_response(request, http::ErrorCode::invalid_argument, "expected a single file part"));
@@ -86,7 +99,6 @@ void handle_create_upload(const drogon::HttpRequestPtr& request, const HttpCallb
         return;
     }
 
-    const auto app_config = config::app_config_from_drogon();
     const services::UploadLimits limits{
         .max_file_size = app_config.upload.max_file_size,
         .max_daily_uploads = app_config.upload.max_daily_uploads,

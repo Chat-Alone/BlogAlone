@@ -3,75 +3,85 @@
 #include <drogon/drogon.h>
 #include <json/value.h>
 
+#include <chrono>
 #include <cstdint>
 #include <limits>
 #include <stdexcept>
+#include <string_view>
 
 namespace blogalone::config {
 namespace {
 
 [[nodiscard]] std::filesystem::path path_or_default(
     const Json::Value& config,
-    const char* key,
+    std::string_view key,
     std::filesystem::path fallback
 )
 {
-    if(!config.isMember(key)) {
+    const std::string key_name{key};
+    if(!config.isMember(key_name)) {
         return fallback;
     }
-    if(!config[key].isString() || config[key].asString().empty()) {
-        throw std::invalid_argument{std::string{"custom_config."} + key + " must be a non-empty string"};
+    if(!config[key_name].isString() || config[key_name].asString().empty()) {
+        throw std::invalid_argument{"custom_config." + key_name + " must be a non-empty string"};
     }
-    return std::filesystem::path{config[key].asString()};
+    return std::filesystem::path{config[key_name].asString()};
 }
 
-[[nodiscard]] int positive_int_or_default(const Json::Value& config, const char* key, int fallback)
+[[nodiscard]] int positive_int_or_default(
+    const Json::Value& config,
+    std::string_view key,
+    int fallback
+)
 {
-    if(!config.isMember(key)) {
+    const std::string key_name{key};
+    if(!config.isMember(key_name)) {
         return fallback;
     }
-    if(!config[key].isInt() || config[key].asInt() <= 0) {
-        throw std::invalid_argument{std::string{"custom_config."} + key + " must be a positive integer"};
+    if(!config[key_name].isInt() || config[key_name].asInt() <= 0) {
+        throw std::invalid_argument{"custom_config." + key_name + " must be a positive integer"};
     }
-    return config[key].asInt();
+    return config[key_name].asInt();
 }
 
 [[nodiscard]] std::int64_t positive_int64_or_default(
     const Json::Value& config,
-    const char* key,
+    std::string_view key,
     std::int64_t fallback
 )
 {
-    if(!config.isMember(key)) {
+    const std::string key_name{key};
+    if(!config.isMember(key_name)) {
         return fallback;
     }
-    if(config[key].isInt64() && config[key].asInt64() > 0) {
-        return config[key].asInt64();
+    if(config[key_name].isInt64() && config[key_name].asInt64() > 0) {
+        return config[key_name].asInt64();
     }
     const auto max_int64 = static_cast<std::uint64_t>((std::numeric_limits<std::int64_t>::max)());
-    if(config[key].isUInt64()
-        && config[key].asUInt64() <= max_int64) {
-        return static_cast<std::int64_t>(config[key].asUInt64());
+    if(config[key_name].isUInt64()
+        && config[key_name].asUInt64() <= max_int64) {
+        return static_cast<std::int64_t>(config[key_name].asUInt64());
     }
-    throw std::invalid_argument{std::string{"custom_config."} + key + " must be a positive integer"};
+    throw std::invalid_argument{"custom_config." + key_name + " must be a positive integer"};
 }
 
 [[nodiscard]] std::uint64_t positive_uint64_or_default(
     const Json::Value& config,
-    const char* key,
+    std::string_view key,
     std::uint64_t fallback
 )
 {
-    if(!config.isMember(key)) {
+    const std::string key_name{key};
+    if(!config.isMember(key_name)) {
         return fallback;
     }
-    if(config[key].isUInt64() && config[key].asUInt64() > 0) {
-        return config[key].asUInt64();
+    if(config[key_name].isUInt64() && config[key_name].asUInt64() > 0) {
+        return config[key_name].asUInt64();
     }
-    if(config[key].isInt64() && config[key].asInt64() > 0) {
-        return static_cast<std::uint64_t>(config[key].asInt64());
+    if(config[key_name].isInt64() && config[key_name].asInt64() > 0) {
+        return static_cast<std::uint64_t>(config[key_name].asInt64());
     }
-    throw std::invalid_argument{std::string{"custom_config."} + key + " must be a positive integer"};
+    throw std::invalid_argument{"custom_config." + key_name + " must be a positive integer"};
 }
 
 [[nodiscard]] util::PasswordHashOptions password_hash_options_from(const Json::Value& custom_config)
@@ -122,19 +132,94 @@ namespace {
     return upload;
 }
 
-[[nodiscard]] std::vector<std::string> string_array_or_empty(const Json::Value& config, const char* key)
+[[nodiscard]] security::RateLimitPolicy rate_limit_policy_from(
+    const Json::Value& custom_config,
+    std::string_view max_requests_key,
+    std::string_view window_seconds_key,
+    security::RateLimitPolicy fallback
+)
 {
-    if(!config.isMember(key)) {
+    const auto max_requests = positive_int_or_default(
+        custom_config,
+        max_requests_key,
+        static_cast<int>(fallback.max_requests)
+    );
+    const auto window_seconds = positive_int_or_default(
+        custom_config,
+        window_seconds_key,
+        static_cast<int>(fallback.window.count())
+    );
+    return security::RateLimitPolicy{
+        .max_requests = static_cast<std::size_t>(max_requests),
+        .window = std::chrono::seconds{window_seconds}
+    };
+}
+
+[[nodiscard]] RateLimitConfig rate_limit_config_from(const Json::Value& custom_config)
+{
+    const RateLimitConfig defaults;
+    return RateLimitConfig{
+        .registration = rate_limit_policy_from(
+            custom_config,
+            "rate_limit_registration_max_requests",
+            "rate_limit_registration_window_seconds",
+            defaults.registration
+        ),
+        .login = rate_limit_policy_from(
+            custom_config,
+            "rate_limit_login_max_requests",
+            "rate_limit_login_window_seconds",
+            defaults.login
+        ),
+        .upload = rate_limit_policy_from(
+            custom_config,
+            "rate_limit_upload_max_requests",
+            "rate_limit_upload_window_seconds",
+            defaults.upload
+        ),
+        .post = rate_limit_policy_from(
+            custom_config,
+            "rate_limit_post_max_requests",
+            "rate_limit_post_window_seconds",
+            defaults.post
+        )
+    };
+}
+
+[[nodiscard]] UploadCleanupConfig upload_cleanup_config_from(const Json::Value& custom_config)
+{
+    const UploadCleanupConfig defaults;
+    return UploadCleanupConfig{
+        .retention_seconds = positive_int_or_default(
+            custom_config,
+            "orphan_upload_retention_seconds",
+            defaults.retention_seconds
+        ),
+        .interval_seconds = positive_int_or_default(
+            custom_config,
+            "upload_cleanup_interval_seconds",
+            defaults.interval_seconds
+        )
+    };
+}
+
+[[nodiscard]] std::vector<std::string> string_array_or_empty(
+    const Json::Value& config,
+    std::string_view key
+)
+{
+    const std::string key_name{key};
+    if(!config.isMember(key_name)) {
         return {};
     }
-    if(!config[key].isArray()) {
-        throw std::invalid_argument{std::string{"custom_config."} + key + " must be an array"};
+    if(!config[key_name].isArray()) {
+        throw std::invalid_argument{"custom_config." + key_name + " must be an array"};
     }
 
     std::vector<std::string> values;
-    for(const auto& item : config[key]) {
+    for(const auto& item : config[key_name]) {
         if(!item.isString() || item.asString().empty()) {
-            throw std::invalid_argument{std::string{"custom_config."} + key + " must contain strings"};
+            throw std::invalid_argument{"custom_config." + key_name + " must contain strings"};
         }
         values.push_back(item.asString());
     }
@@ -155,6 +240,8 @@ AppConfig app_config_from_json(const Json::Value& custom_config)
             1'209'600
         ),
         .upload = upload_config_from(custom_config),
+        .rate_limits = rate_limit_config_from(custom_config),
+        .upload_cleanup = upload_cleanup_config_from(custom_config),
         .password_hash_options = password_hash_options_from(custom_config)
     };
 }

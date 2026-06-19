@@ -1,5 +1,6 @@
 #include "http/request_context.h"
 
+#include "http/client_ip.h"
 #include "util/crypto.h"
 
 #include <drogon/drogon.h>
@@ -97,7 +98,7 @@ void install_request_context_advice()
                 request->path(),
                 static_cast<int>(response->statusCode()),
                 elapsed_milliseconds(request),
-                request->peerAddr().toIp()
+                client_ip_from(request)
             );
         }
     );

@@ -1,7 +1,9 @@
 #include "config/app_config.h"
 #include "http/api_error.h"
+#include "http/client_ip.h"
 #include "http/request_context.h"
 #include "http/static_files.h"
+#include "security/rate_limiter.h"
 #include "util/crypto.h"
 #include "util/time.h"
 
@@ -17,6 +19,7 @@
 #include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 namespace {
 
@@ -107,6 +110,16 @@ TEST(InfrastructureTest, ParsesApplicationCustomConfig)
     custom_config["upload_max_file_size"] = 1'048'576;
     custom_config["upload_max_daily_uploads"] = 7;
     custom_config["upload_max_dimension"] = 1024;
+    custom_config["rate_limit_registration_max_requests"] = 3;
+    custom_config["rate_limit_registration_window_seconds"] = 600;
+    custom_config["rate_limit_login_max_requests"] = 4;
+    custom_config["rate_limit_login_window_seconds"] = 120;
+    custom_config["rate_limit_upload_max_requests"] = 8;
+    custom_config["rate_limit_upload_window_seconds"] = 30;
+    custom_config["rate_limit_post_max_requests"] = 9;
+    custom_config["rate_limit_post_window_seconds"] = 45;
+    custom_config["orphan_upload_retention_seconds"] = 7200;
+    custom_config["upload_cleanup_interval_seconds"] = 300;
     custom_config["password_opslimit"] = 2;
     custom_config["password_memlimit"] = 67'108'864;
 
@@ -120,6 +133,16 @@ TEST(InfrastructureTest, ParsesApplicationCustomConfig)
     EXPECT_EQ(parsed.upload.max_file_size, 1'048'576);
     EXPECT_EQ(parsed.upload.max_daily_uploads, 7);
     EXPECT_EQ(parsed.upload.max_dimension, 1024);
+    EXPECT_EQ(parsed.rate_limits.registration.max_requests, 3);
+    EXPECT_EQ(parsed.rate_limits.registration.window, std::chrono::seconds{600});
+    EXPECT_EQ(parsed.rate_limits.login.max_requests, 4);
+    EXPECT_EQ(parsed.rate_limits.login.window, std::chrono::seconds{120});
+    EXPECT_EQ(parsed.rate_limits.upload.max_requests, 8);
+    EXPECT_EQ(parsed.rate_limits.upload.window, std::chrono::seconds{30});
+    EXPECT_EQ(parsed.rate_limits.post.max_requests, 9);
+    EXPECT_EQ(parsed.rate_limits.post.window, std::chrono::seconds{45});
+    EXPECT_EQ(parsed.upload_cleanup.retention_seconds, 7200);
+    EXPECT_EQ(parsed.upload_cleanup.interval_seconds, 300);
     EXPECT_EQ(parsed.password_hash_options.opslimit, 2);
     EXPECT_EQ(parsed.password_hash_options.memlimit, 67'108'864);
 }
@@ -196,6 +219,122 @@ TEST(InfrastructureTest, ValidatesRequestIds)
     EXPECT_FALSE(blogalone::http::is_valid_request_id("short"));
     EXPECT_FALSE(blogalone::http::is_valid_request_id("req_has space"));
     EXPECT_FALSE(blogalone::http::is_valid_request_id("req_has/slash"));
+}
+
+TEST(InfrastructureTest, TrustsForwardedForOnlyFromConfiguredProxy)
+{
+    const std::vector<std::string> trusted_proxies{"127.0.0.1", "10.0.0.2"};
+
+    EXPECT_EQ(
+        blogalone::http::resolve_client_ip(
+            "127.0.0.1",
+            "198.51.100.9, 10.0.0.2",
+            trusted_proxies
+        ),
+        "198.51.100.9"
+    );
+    EXPECT_EQ(
+        blogalone::http::resolve_client_ip(
+            "203.0.113.7",
+            "198.51.100.9",
+            trusted_proxies
+        ),
+        "203.0.113.7"
+    );
+}
+
+TEST(InfrastructureTest, RejectsMalformedForwardedForChain)
+{
+    const std::vector<std::string> trusted_proxies{"127.0.0.1"};
+
+    EXPECT_EQ(
+        blogalone::http::resolve_client_ip(
+            "127.0.0.1",
+            "198.51.100.9, not-an-ip",
+            trusted_proxies
+        ),
+        "127.0.0.1"
+    );
+}
+
+TEST(InfrastructureTest, EnforcesSlidingWindowAcrossIpAndUserKeys)
+{
+    blogalone::security::RequestRateLimiter limiter;
+    const blogalone::security::RateLimitPolicy policy{
+        .max_requests = 2,
+        .window = std::chrono::seconds{60}
+    };
+    const auto started_at = blogalone::security::RequestRateLimiter::TimePoint{};
+
+    EXPECT_TRUE(limiter.consume(
+        blogalone::security::RateLimitScope::post,
+        "198.51.100.1",
+        42,
+        policy,
+        started_at
+    ));
+    EXPECT_TRUE(limiter.consume(
+        blogalone::security::RateLimitScope::post,
+        "198.51.100.1",
+        42,
+        policy,
+        started_at + std::chrono::seconds{1}
+    ));
+    EXPECT_FALSE(limiter.consume(
+        blogalone::security::RateLimitScope::post,
+        "198.51.100.2",
+        42,
+        policy,
+        started_at + std::chrono::seconds{2}
+    ));
+    EXPECT_FALSE(limiter.consume(
+        blogalone::security::RateLimitScope::post,
+        "198.51.100.1",
+        43,
+        policy,
+        started_at + std::chrono::seconds{2}
+    ));
+    EXPECT_TRUE(limiter.consume(
+        blogalone::security::RateLimitScope::post,
+        "198.51.100.1",
+        42,
+        policy,
+        started_at + std::chrono::seconds{60}
+    ));
+}
+
+TEST(InfrastructureTest, ResetsFailedLoginWindow)
+{
+    blogalone::security::RequestRateLimiter limiter;
+    const blogalone::security::RateLimitPolicy policy{
+        .max_requests = 1,
+        .window = std::chrono::minutes{5}
+    };
+
+    limiter.record(
+        blogalone::security::RateLimitScope::login,
+        "198.51.100.1",
+        std::nullopt,
+        policy
+    );
+    EXPECT_FALSE(limiter.is_allowed(
+        blogalone::security::RateLimitScope::login,
+        "198.51.100.1",
+        std::nullopt,
+        policy
+    ));
+
+    limiter.reset(
+        blogalone::security::RateLimitScope::login,
+        "198.51.100.1",
+        std::nullopt
+    );
+    EXPECT_TRUE(limiter.is_allowed(
+        blogalone::security::RateLimitScope::login,
+        "198.51.100.1",
+        std::nullopt,
+        policy
+    ));
 }
 
 TEST(InfrastructureTest, GeneratesHexTokensAndHashes)

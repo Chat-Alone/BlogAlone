@@ -29,6 +29,13 @@
         "migrations_dir": "migrations",
         "db_client": "default"
       }
+    },
+    {
+      "name": "blogalone::plugins::UploadCleanupPlugin",
+      "dependencies": [
+        "blogalone::plugins::DatabaseMigrationPlugin"
+      ],
+      "config": {}
     }
   ],
   "custom_config": {
@@ -41,6 +48,16 @@
     "upload_max_file_size": 5242880,
     "upload_max_daily_uploads": 100,
     "upload_max_dimension": 5792,
+    "rate_limit_registration_max_requests": 5,
+    "rate_limit_registration_window_seconds": 3600,
+    "rate_limit_login_max_requests": 5,
+    "rate_limit_login_window_seconds": 300,
+    "rate_limit_upload_max_requests": 20,
+    "rate_limit_upload_window_seconds": 60,
+    "rate_limit_post_max_requests": 30,
+    "rate_limit_post_window_seconds": 60,
+    "orphan_upload_retention_seconds": 86400,
+    "upload_cleanup_interval_seconds": 3600,
     "password_opslimit": 3,
     "password_memlimit": 268435456
   }

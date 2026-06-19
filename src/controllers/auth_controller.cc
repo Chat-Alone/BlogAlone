@@ -3,11 +3,13 @@
 #include "config/app_config.h"
 #include "filters/session_filter.h"
 #include "http/api_error.h"
+#include "http/client_ip.h"
 #include "http/handler_guard.h"
 #include "http/json_body.h"
 #include "http/request_context.h"
 #include "http/session_context.h"
 #include "models/user.h"
+#include "security/rate_limiter.h"
 #include "services/auth_service.h"
 #include "util/time.h"
 
@@ -138,6 +140,18 @@ void handle_register(
     const HttpCallback& callback
 )
 {
+    const auto app_config = config::app_config_from_drogon();
+    const auto client_ip = http::client_ip_from(request);
+    if(!security::request_rate_limiter().consume(
+        security::RateLimitScope::registration,
+        client_ip,
+        std::nullopt,
+        app_config.rate_limits.registration
+    )) {
+        callback(error_response(request, http::ErrorCode::rate_limited, "rate limit exceeded"));
+        return;
+    }
+
     const auto body = http::parse_json_body(request);
     if(!body) {
         callback(error_response(request, http::ErrorCode::invalid_argument, "invalid json body"));
@@ -155,17 +169,16 @@ void handle_register(
         return;
     }
 
-    const auto config = config::app_config_from_drogon();
     const services::AuthService service{
         repositories::UserRepository{},
         repositories::SessionRepository{},
-        config.session_ttl_seconds,
-        config.password_hash_options
+        app_config.session_ttl_seconds,
+        app_config.password_hash_options
     };
 
     const auto result = service.register_user(
         registration,
-        request->peerAddr().toIp(),
+        client_ip,
         request->getHeader("user-agent"),
         util::utc_unix_seconds()
     );
@@ -178,7 +191,7 @@ void handle_register(
         return;
     }
 
-    callback(auth_success(*result, config.session_ttl_seconds));
+    callback(auth_success(*result, app_config.session_ttl_seconds));
 }
 
 void handle_login(
@@ -186,6 +199,19 @@ void handle_login(
     const HttpCallback& callback
 )
 {
+    const auto app_config = config::app_config_from_drogon();
+    const auto client_ip = http::client_ip_from(request);
+    auto& limiter = security::request_rate_limiter();
+    if(!limiter.is_allowed(
+        security::RateLimitScope::login,
+        client_ip,
+        std::nullopt,
+        app_config.rate_limits.login
+    )) {
+        callback(error_response(request, http::ErrorCode::rate_limited, "rate limit exceeded"));
+        return;
+    }
+
     const auto body = http::parse_json_body(request);
     if(!body) {
         callback(error_response(request, http::ErrorCode::invalid_argument, "invalid json body"));
@@ -202,21 +228,28 @@ void handle_login(
         return;
     }
 
-    const auto config = config::app_config_from_drogon();
     const services::AuthService service{
         repositories::UserRepository{},
         repositories::SessionRepository{},
-        config.session_ttl_seconds,
-        config.password_hash_options
+        app_config.session_ttl_seconds,
+        app_config.password_hash_options
     };
 
     const auto result = service.login(
         login,
-        request->peerAddr().toIp(),
+        client_ip,
         request->getHeader("user-agent"),
         util::utc_unix_seconds()
     );
     if(!result.has_value()) {
+        if(result.error() == services::AuthError::invalid_credentials) {
+            limiter.record(
+                security::RateLimitScope::login,
+                client_ip,
+                std::nullopt,
+                app_config.rate_limits.login
+            );
+        }
         const auto code = result.error() == services::AuthError::invalid_credentials
             ? http::ErrorCode::unauthenticated
             : to_error_code(result.error());
@@ -228,7 +261,8 @@ void handle_login(
         return;
     }
 
-    callback(auth_success(*result, config.session_ttl_seconds));
+    limiter.reset(security::RateLimitScope::login, client_ip, std::nullopt);
+    callback(auth_success(*result, app_config.session_ttl_seconds));
 }
 
 void handle_logout(

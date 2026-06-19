@@ -64,12 +64,14 @@ add_library(blogalone_core STATIC
     src/filters/csrf_filter.cc
     src/filters/session_filter.cc
     src/http/api_error.cc
+    src/http/client_ip.cc
     src/http/json_body.cc
     src/http/request_context.cc
     src/http/session_context.cc
     src/http/static_files.cc
     src/models/user.cc
     src/plugins/database_migration_plugin.cc
+    src/plugins/upload_cleanup_plugin.cc
     src/repositories/admin_repository.cc
     src/repositories/forum_repository.cc
     src/repositories/health_repository.cc
@@ -80,7 +82,9 @@ add_library(blogalone_core STATIC
     src/services/auth_service.cc
     src/services/forum_service.cc
     src/services/health_service.cc
+    src/services/upload_cleanup_service.cc
     src/services/upload_service.cc
+    src/security/rate_limiter.cc
     src/util/crypto.cc
     src/util/image.cc
     src/util/markdown.cc

@@ -1,12 +1,15 @@
 #include "controllers/forum_controller.h"
 
+#include "config/app_config.h"
 #include "filters/session_filter.h"
 #include "http/api_error.h"
+#include "http/client_ip.h"
 #include "http/handler_guard.h"
 #include "http/json_body.h"
 #include "http/request_context.h"
 #include "http/session_context.h"
 #include "models/forum.h"
+#include "security/rate_limiter.h"
 #include "services/forum_service.h"
 #include "util/time.h"
 
@@ -216,6 +219,20 @@ template <typename T, typename Converter>
     return session->user_id;
 }
 
+[[nodiscard]] bool consume_post_rate_limit(
+    const drogon::HttpRequestPtr& request,
+    std::int64_t user_id
+)
+{
+    const auto app_config = config::app_config_from_drogon();
+    return security::request_rate_limiter().consume(
+        security::RateLimitScope::post,
+        http::client_ip_from(request),
+        user_id,
+        app_config.rate_limits.post
+    );
+}
+
 void handle_list_forums(const drogon::HttpRequestPtr&, const HttpCallback& callback)
 {
     Json::Value body;
@@ -265,6 +282,10 @@ void handle_create_thread(const drogon::HttpRequestPtr& request, const HttpCallb
     const auto user_id = current_user_id(request);
     if(!user_id.has_value()) {
         callback(error_response(request, http::ErrorCode::unauthenticated, "authentication required"));
+        return;
+    }
+    if(!consume_post_rate_limit(request, *user_id)) {
+        callback(error_response(request, http::ErrorCode::rate_limited, "rate limit exceeded"));
         return;
     }
 
@@ -384,6 +405,10 @@ void handle_create_post(
         callback(error_response(request, http::ErrorCode::unauthenticated, "authentication required"));
         return;
     }
+    if(!consume_post_rate_limit(request, *user_id)) {
+        callback(error_response(request, http::ErrorCode::rate_limited, "rate limit exceeded"));
+        return;
+    }
 
     const auto body = http::parse_json_body(request);
     if(!body) {
@@ -497,6 +522,10 @@ void handle_create_sub_post(
     const auto user_id = current_user_id(request);
     if(!user_id.has_value()) {
         callback(error_response(request, http::ErrorCode::unauthenticated, "authentication required"));
+        return;
+    }
+    if(!consume_post_rate_limit(request, *user_id)) {
+        callback(error_response(request, http::ErrorCode::rate_limited, "rate limit exceeded"));
         return;
     }
 

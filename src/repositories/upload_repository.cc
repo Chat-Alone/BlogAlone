@@ -21,7 +21,7 @@ namespace {
     };
 }
 
-constexpr const char* kSelectColumns =
+constexpr std::string_view kSelectColumns =
     "SELECT id, sha256, path, mime, size, width, height, created_at FROM uploads";
 
 }
@@ -140,6 +140,33 @@ void UploadRepository::mark_ref_attached(
         owner_id,
         std::string{path}
     );
+}
+
+std::int64_t UploadRepository::delete_unattached_refs_before(std::int64_t cutoff) const
+{
+    const auto db = client();
+    const auto rows = db->execSqlSync(
+        "DELETE FROM upload_refs WHERE attached_at IS NULL AND created_at < ? RETURNING id",
+        cutoff
+    );
+    return static_cast<std::int64_t>(rows.size());
+}
+
+std::vector<models::Upload> UploadRepository::delete_unreferenced_uploads() const
+{
+    const auto db = client();
+    const auto rows = db->execSqlSync(
+        "DELETE FROM uploads "
+        "WHERE NOT EXISTS (SELECT 1 FROM upload_refs WHERE upload_id = uploads.id) "
+        "RETURNING id, sha256, path, mime, size, width, height, created_at"
+    );
+
+    std::vector<models::Upload> uploads;
+    uploads.reserve(rows.size());
+    for(const auto& row : rows) {
+        uploads.push_back(row_to_upload(row));
+    }
+    return uploads;
 }
 
 }

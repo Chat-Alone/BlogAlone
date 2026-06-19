@@ -1,6 +1,7 @@
 #include "db/migrations.h"
 #include "repositories/upload_repository.h"
 #include "repositories/user_repository.h"
+#include "services/upload_cleanup_service.h"
 #include "services/upload_service.h"
 #include "util/image.h"
 
@@ -507,6 +508,75 @@ TEST_F(UploadServiceTest, CleansCreatedFileWhenReferenceInsertFails)
     EXPECT_EQ(rows.at(0)["upload_count"].as<std::int64_t>(), 0);
     EXPECT_EQ(rows.at(0)["ref_count"].as<std::int64_t>(), 0);
     EXPECT_EQ(regular_file_count(workspace_.path() / "uploads"), 0);
+}
+
+TEST_F(UploadServiceTest, RemovesExpiredOrphanAndKeepsAttachedUpload)
+{
+    constexpr std::int64_t now = 1'700'100'000;
+    const auto owner = insert_user("alice");
+    const auto orphan = service_.store_image(
+        owner,
+        bytes_to_string(make_valid_1x1_png()),
+        now - 90'000
+    );
+    const auto attached = service_.store_image(
+        owner,
+        bytes_to_string(make_valid_1x1_gif()),
+        now - 90'000
+    );
+    ASSERT_TRUE(orphan.has_value());
+    ASSERT_TRUE(attached.has_value());
+
+    const auto orphan_path = orphan->url.substr(std::string_view{"/uploads/"}.size());
+    const auto attached_path = attached->url.substr(std::string_view{"/uploads/"}.size());
+    upload_repository_.mark_ref_attached(owner, attached_path, now - 80'000);
+
+    const blogalone::services::UploadCleanupService cleanup{
+        workspace_.path() / "uploads",
+        blogalone::repositories::UploadRepository{client_}
+    };
+    const auto result = cleanup.remove_orphans(now - 86'400);
+
+    EXPECT_EQ(result.refs_deleted, 1);
+    EXPECT_EQ(result.uploads_deleted, 1);
+    EXPECT_EQ(result.files_deleted, 1);
+    EXPECT_EQ(result.file_failures, 0);
+    EXPECT_FALSE(std::filesystem::exists(workspace_.path() / "uploads" / orphan_path));
+    EXPECT_TRUE(std::filesystem::exists(workspace_.path() / "uploads" / attached_path));
+
+    const auto rows = client_->execSqlSync(
+        "SELECT "
+        "(SELECT COUNT(*) FROM uploads) AS upload_count, "
+        "(SELECT COUNT(*) FROM upload_refs) AS ref_count"
+    );
+    ASSERT_EQ(rows.size(), 1);
+    EXPECT_EQ(rows.at(0)["upload_count"].as<std::int64_t>(), 1);
+    EXPECT_EQ(rows.at(0)["ref_count"].as<std::int64_t>(), 1);
+}
+
+TEST_F(UploadServiceTest, KeepsFreshUnattachedUpload)
+{
+    constexpr std::int64_t now = 1'700'100'000;
+    const auto owner = insert_user("alice");
+    const auto upload = service_.store_image(
+        owner,
+        bytes_to_string(make_valid_1x1_png()),
+        now - 100
+    );
+    ASSERT_TRUE(upload.has_value());
+
+    const blogalone::services::UploadCleanupService cleanup{
+        workspace_.path() / "uploads",
+        blogalone::repositories::UploadRepository{client_}
+    };
+    const auto result = cleanup.remove_orphans(now - 86'400);
+
+    EXPECT_EQ(result.refs_deleted, 0);
+    EXPECT_EQ(result.uploads_deleted, 0);
+    EXPECT_EQ(result.files_deleted, 0);
+    EXPECT_EQ(result.file_failures, 0);
+    const auto relative = upload->url.substr(std::string_view{"/uploads/"}.size());
+    EXPECT_TRUE(std::filesystem::exists(workspace_.path() / "uploads" / relative));
 }
 
 }

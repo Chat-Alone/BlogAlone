@@ -23,20 +23,18 @@ void run_guarded_request(
 {
     try {
         std::forward<Function>(function)();
-    } catch(const drogon::orm::DrogonDbException& error) {
+    } catch(const drogon::orm::DrogonDbException&) {
         spdlog::error(
-            "request_id={} scope={} database_error={}",
+            "request_id={} scope={} database_error=true",
             request_id_from(request),
-            scope,
-            error.base().what()
+            scope
         );
         callback(make_internal_error_response(request));
-    } catch(const std::exception& error) {
+    } catch(const std::exception&) {
         spdlog::error(
-            "request_id={} scope={} exception={}",
+            "request_id={} scope={} exception=true",
             request_id_from(request),
-            scope,
-            error.what()
+            scope
         );
         callback(make_internal_error_response(request));
     } catch(...) {
