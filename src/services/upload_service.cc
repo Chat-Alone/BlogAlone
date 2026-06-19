@@ -1,5 +1,6 @@
 #include "services/upload_service.h"
 
+#include "db/transaction.h"
 #include "services/upload_file_mutex.h"
 #include "util/crypto.h"
 #include "util/image.h"
@@ -7,12 +8,9 @@
 #include <chrono>
 #include <cstdint>
 #include <fstream>
-#include <future>
-#include <memory>
 #include <mutex>
 #include <optional>
 #include <span>
-#include <stdexcept>
 #include <system_error>
 #include <utility>
 
@@ -77,46 +75,6 @@ void remove_created_file_if_unreferenced(
     std::error_code error;
     std::filesystem::remove(absolute, error);
 }
-
-class DbTransaction {
-  public:
-    explicit DbTransaction(const drogon::orm::DbClientPtr& db)
-        : commit_promise_{std::make_shared<std::promise<bool>>()}
-        , commit_result_{commit_promise_->get_future()}
-        , transaction_{db->newTransaction([promise = commit_promise_](bool committed) {
-            promise->set_value(committed);
-        })}
-    {
-    }
-
-    DbTransaction(const DbTransaction&) = delete;
-    DbTransaction& operator=(const DbTransaction&) = delete;
-
-    ~DbTransaction()
-    {
-        if(transaction_) {
-            transaction_->rollback();
-        }
-    }
-
-    [[nodiscard]] drogon::orm::DbClientPtr client() const
-    {
-        return {transaction_.get(), [](drogon::orm::DbClient*) {}};
-    }
-
-    void commit()
-    {
-        transaction_.reset();
-        if(!commit_result_.get()) {
-            throw std::runtime_error{"database transaction commit failed"};
-        }
-    }
-
-  private:
-    std::shared_ptr<std::promise<bool>> commit_promise_;
-    std::future<bool> commit_result_;
-    std::shared_ptr<drogon::orm::Transaction> transaction_;
-};
 
 }
 
@@ -215,7 +173,10 @@ UploadResult<UploadDescriptor> UploadService::store_image(
 
     std::optional<UploadError> db_error;
     try {
-        DbTransaction transaction{upload_repository_.client()};
+        db::Transaction transaction{
+            upload_repository_.client(),
+            drogon::orm::TransactionType::Deferred
+        };
         const repositories::UploadRepository repository{transaction.client()};
         if(repository.count_owner_refs_since(owner_id, quota_since) >= limits_.max_daily_uploads) {
             db_error = UploadError::rate_limited;

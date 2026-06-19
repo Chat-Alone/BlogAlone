@@ -1,4 +1,5 @@
 #include "config/app_config.h"
+#include "db/transaction.h"
 #include "http/api_error.h"
 #include "http/client_ip.h"
 #include "http/request_context.h"
@@ -7,11 +8,13 @@
 #include "util/crypto.h"
 #include "util/time.h"
 
+#include <drogon/drogon.h>
 #include <gtest/gtest.h>
 #include <json/reader.h>
 #include <json/value.h>
 
 #include <chrono>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -204,6 +207,36 @@ TEST(InfrastructureTest, KeepsDrogonSqliteClientSingleConnection)
     }
 }
 
+TEST(InfrastructureTest, CommitsAndRollsBackDrogonTransactions)
+{
+    TempWorkspace workspace;
+    const auto client = drogon::orm::DbClient::newSqlite3Client(
+        "filename=" + (workspace.path() / "transactions.db").generic_string(),
+        1
+    );
+    client->execSqlSync("CREATE TABLE values_log (value INTEGER NOT NULL)");
+
+    {
+        blogalone::db::Transaction transaction{
+            client,
+            drogon::orm::TransactionType::Immediate
+        };
+        transaction.client()->execSqlSync("INSERT INTO values_log (value) VALUES (1)");
+        transaction.commit();
+    }
+    {
+        blogalone::db::Transaction transaction{
+            client,
+            drogon::orm::TransactionType::Immediate
+        };
+        transaction.client()->execSqlSync("INSERT INTO values_log (value) VALUES (2)");
+    }
+
+    const auto rows = client->execSqlSync("SELECT COUNT(*) AS total FROM values_log");
+    ASSERT_EQ(rows.size(), 1);
+    EXPECT_EQ(rows.at(0)["total"].as<std::int64_t>(), 1);
+}
+
 TEST(InfrastructureTest, LocksSqlMigrationLineEndings)
 {
     const auto attributes = read_text_file(
@@ -323,30 +356,122 @@ TEST(InfrastructureTest, ResetsFailedLoginWindow)
         .window = std::chrono::minutes{5}
     };
 
-    limiter.record(
+    auto failed_attempt = limiter.reserve(
         blogalone::security::RateLimitScope::login,
         "198.51.100.1",
         std::nullopt,
         policy
     );
-    EXPECT_FALSE(limiter.is_allowed(
+    ASSERT_TRUE(failed_attempt.has_value());
+    failed_attempt->commit();
+    EXPECT_FALSE(limiter.reserve(
         blogalone::security::RateLimitScope::login,
         "198.51.100.1",
         std::nullopt,
         policy
-    ));
+    ).has_value());
 
     limiter.reset(
         blogalone::security::RateLimitScope::login,
         "198.51.100.1",
         std::nullopt
     );
-    EXPECT_TRUE(limiter.is_allowed(
+    EXPECT_TRUE(limiter.reserve(
         blogalone::security::RateLimitScope::login,
         "198.51.100.1",
         std::nullopt,
         policy
-    ));
+    ).has_value());
+}
+
+TEST(InfrastructureTest, KeepsConcurrentLoginReservationsAcrossReset)
+{
+    blogalone::security::RequestRateLimiter limiter;
+    const blogalone::security::RateLimitPolicy policy{
+        .max_requests = 2,
+        .window = std::chrono::minutes{5}
+    };
+    const auto started_at = blogalone::security::RequestRateLimiter::TimePoint{};
+
+    auto successful = limiter.reserve(
+        blogalone::security::RateLimitScope::login,
+        "198.51.100.1",
+        std::nullopt,
+        policy,
+        started_at
+    );
+    auto concurrent_failure = limiter.reserve(
+        blogalone::security::RateLimitScope::login,
+        "198.51.100.1",
+        std::nullopt,
+        policy,
+        started_at
+    );
+    ASSERT_TRUE(successful.has_value());
+    ASSERT_TRUE(concurrent_failure.has_value());
+    EXPECT_FALSE(limiter.reserve(
+        blogalone::security::RateLimitScope::login,
+        "198.51.100.1",
+        std::nullopt,
+        policy,
+        started_at
+    ).has_value());
+
+    successful->cancel();
+    limiter.reset(
+        blogalone::security::RateLimitScope::login,
+        "198.51.100.1",
+        std::nullopt
+    );
+    concurrent_failure->commit(started_at + std::chrono::seconds{1});
+
+    auto next_attempt = limiter.reserve(
+        blogalone::security::RateLimitScope::login,
+        "198.51.100.1",
+        std::nullopt,
+        policy,
+        started_at + std::chrono::seconds{2}
+    );
+    ASSERT_TRUE(next_attempt.has_value());
+    EXPECT_FALSE(limiter.reserve(
+        blogalone::security::RateLimitScope::login,
+        "198.51.100.1",
+        std::nullopt,
+        policy,
+        started_at + std::chrono::seconds{2}
+    ).has_value());
+}
+
+TEST(InfrastructureTest, CancelsAbandonedLoginReservation)
+{
+    blogalone::security::RequestRateLimiter limiter;
+    const blogalone::security::RateLimitPolicy policy{
+        .max_requests = 1,
+        .window = std::chrono::minutes{5}
+    };
+
+    {
+        auto abandoned = limiter.reserve(
+            blogalone::security::RateLimitScope::login,
+            "198.51.100.1",
+            std::nullopt,
+            policy
+        );
+        ASSERT_TRUE(abandoned.has_value());
+        EXPECT_FALSE(limiter.reserve(
+            blogalone::security::RateLimitScope::login,
+            "198.51.100.1",
+            std::nullopt,
+            policy
+        ).has_value());
+    }
+
+    EXPECT_TRUE(limiter.reserve(
+        blogalone::security::RateLimitScope::login,
+        "198.51.100.1",
+        std::nullopt,
+        policy
+    ).has_value());
 }
 
 TEST(InfrastructureTest, GeneratesHexTokensAndHashes)

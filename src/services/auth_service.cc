@@ -1,5 +1,6 @@
 #include "services/auth_service.h"
 
+#include "db/transaction.h"
 #include "util/crypto.h"
 
 #include <drogon/orm/Exception.h>
@@ -25,45 +26,6 @@ constexpr std::string_view kAvatarUrlPrefix = "/uploads/";
 constexpr std::string_view kFakeLoginPassword = "blogalone fixed fake login password";
 
 using PasswordHashKey = std::pair<unsigned long long, std::size_t>;
-
-class SqlTransaction {
-  public:
-    explicit SqlTransaction(drogon::orm::DbClientPtr db)
-        : db_{std::move(db)}
-    {
-        db_->execSqlSync("BEGIN IMMEDIATE;");
-        active_ = true;
-    }
-
-    SqlTransaction(const SqlTransaction&) = delete;
-    SqlTransaction& operator=(const SqlTransaction&) = delete;
-
-    ~SqlTransaction()
-    {
-        if(active_) {
-            rollback();
-        }
-    }
-
-    void commit()
-    {
-        db_->execSqlSync("COMMIT;");
-        active_ = false;
-    }
-
-  private:
-    void rollback() noexcept
-    {
-        try {
-            db_->execSqlSync("ROLLBACK;");
-        } catch(...) {
-        }
-        active_ = false;
-    }
-
-    drogon::orm::DbClientPtr db_;
-    bool active_{};
-};
 
 [[nodiscard]] std::string trim(std::string_view value)
 {
@@ -305,10 +267,13 @@ AuthResult<AuthIssued> AuthService::register_user(
     const auto pwd_hash = util::hash_password(password, password_hash_options_);
     models::User user;
     try {
-        const auto db = user_repository_.client();
-        const repositories::UserRepository user_repository{db};
-        const repositories::SessionRepository session_repository{db};
-        SqlTransaction transaction{db};
+        db::Transaction transaction{
+            user_repository_.client(),
+            drogon::orm::TransactionType::Immediate
+        };
+        const auto transaction_client = transaction.client();
+        const repositories::UserRepository user_repository{transaction_client};
+        const repositories::SessionRepository session_repository{transaction_client};
 
         const auto user_id = user_repository.create(username, normalized_email, pwd_hash, now);
         const auto created = user_repository.find_by_id(user_id);

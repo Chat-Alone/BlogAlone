@@ -61,6 +61,7 @@ add_library(blogalone_core STATIC
     src/controllers/page_controller.cc
     src/controllers/upload_controller.cc
     src/db/migrations.cc
+    src/db/transaction.cc
     src/filters/csrf_filter.cc
     src/filters/session_filter.cc
     src/http/api_error.cc

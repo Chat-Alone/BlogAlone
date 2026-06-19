@@ -1,5 +1,6 @@
 #include "services/admin_service.h"
 
+#include "db/transaction.h"
 #include "repositories/forum_repository.h"
 #include "repositories/session_repository.h"
 #include "util/password.h"
@@ -19,39 +20,6 @@ constexpr std::size_t kMaxForumSlugLength = 32;
 constexpr std::size_t kMaxForumNameBytes = 240;
 constexpr std::size_t kMaxForumDescriptionBytes = 4'000;
 constexpr std::size_t kSessionHashLength = 64;
-
-class SqlTransaction {
-  public:
-    explicit SqlTransaction(drogon::orm::DbClientPtr db)
-        : db_{std::move(db)}
-    {
-        db_->execSqlSync("BEGIN IMMEDIATE;");
-        active_ = true;
-    }
-
-    SqlTransaction(const SqlTransaction&) = delete;
-    SqlTransaction& operator=(const SqlTransaction&) = delete;
-
-    ~SqlTransaction()
-    {
-        if(active_) {
-            try {
-                db_->execSqlSync("ROLLBACK;");
-            } catch(...) {
-            }
-        }
-    }
-
-    void commit()
-    {
-        db_->execSqlSync("COMMIT;");
-        active_ = false;
-    }
-
-  private:
-    drogon::orm::DbClientPtr db_;
-    bool active_{};
-};
 
 [[nodiscard]] std::string trim(std::string_view value)
 {
@@ -171,8 +139,11 @@ AdminResult<models::Forum> AdminService::create_forum(
         return AdminError::invalid_input;
     }
 
-    const auto db = admin_repository_.client();
-    SqlTransaction transaction{db};
+    db::Transaction transaction{
+        admin_repository_.client(),
+        drogon::orm::TransactionType::Immediate
+    };
+    const auto db = transaction.client();
     const repositories::AdminRepository repository{db};
     const repositories::UserRepository users{db};
     if(!is_admin(users, admin_id)) {
@@ -210,8 +181,11 @@ AdminResult<models::Forum> AdminService::update_forum(
         return AdminError::invalid_input;
     }
 
-    const auto db = admin_repository_.client();
-    SqlTransaction transaction{db};
+    db::Transaction transaction{
+        admin_repository_.client(),
+        drogon::orm::TransactionType::Immediate
+    };
+    const auto db = transaction.client();
     const repositories::AdminRepository repository{db};
     const repositories::UserRepository users{db};
     if(!is_admin(users, admin_id)) {
@@ -253,8 +227,11 @@ AdminResult<AdminDeleteResult> AdminService::delete_forum(
     std::int64_t now
 ) const
 {
-    const auto db = admin_repository_.client();
-    SqlTransaction transaction{db};
+    db::Transaction transaction{
+        admin_repository_.client(),
+        drogon::orm::TransactionType::Immediate
+    };
+    const auto db = transaction.client();
     const repositories::AdminRepository repository{db};
     const repositories::UserRepository users{db};
     if(!is_admin(users, admin_id)) {
@@ -341,10 +318,11 @@ AdminResult<ReauthResult> AdminService::reauth(
         return AdminError::forbidden;
     }
 
-    SqlTransaction transaction{db};
-    const repositories::AdminRepository repository{db};
-    const repositories::UserRepository transaction_users{db};
-    const repositories::SessionRepository sessions{db};
+    db::Transaction transaction{db, drogon::orm::TransactionType::Immediate};
+    const auto transaction_client = transaction.client();
+    const repositories::AdminRepository repository{transaction_client};
+    const repositories::UserRepository transaction_users{transaction_client};
+    const repositories::SessionRepository sessions{transaction_client};
     const auto current_admin = transaction_users.find_by_id(admin_id);
     if(!current_admin.has_value() || current_admin->role != models::UserRole::admin) {
         return AdminError::forbidden;
@@ -364,8 +342,11 @@ AdminResult<AdminState> AdminService::set_thread_pinned(
     std::int64_t now
 ) const
 {
-    const auto db = admin_repository_.client();
-    SqlTransaction transaction{db};
+    db::Transaction transaction{
+        admin_repository_.client(),
+        drogon::orm::TransactionType::Immediate
+    };
+    const auto db = transaction.client();
     const repositories::AdminRepository repository{db};
     const repositories::UserRepository users{db};
     if(!is_admin(users, admin_id)) {
@@ -393,8 +374,11 @@ AdminResult<AdminState> AdminService::set_thread_featured(
     std::int64_t now
 ) const
 {
-    const auto db = admin_repository_.client();
-    SqlTransaction transaction{db};
+    db::Transaction transaction{
+        admin_repository_.client(),
+        drogon::orm::TransactionType::Immediate
+    };
+    const auto db = transaction.client();
     const repositories::AdminRepository repository{db};
     const repositories::UserRepository users{db};
     if(!is_admin(users, admin_id)) {
@@ -422,8 +406,11 @@ AdminResult<AdminState> AdminService::set_thread_deleted(
     std::int64_t now
 ) const
 {
-    const auto db = admin_repository_.client();
-    SqlTransaction transaction{db};
+    db::Transaction transaction{
+        admin_repository_.client(),
+        drogon::orm::TransactionType::Immediate
+    };
+    const auto db = transaction.client();
     const repositories::AdminRepository repository{db};
     const repositories::UserRepository users{db};
     if(!is_admin(users, admin_id)) {
@@ -451,8 +438,11 @@ AdminResult<AdminState> AdminService::set_post_deleted(
     std::int64_t now
 ) const
 {
-    const auto db = admin_repository_.client();
-    SqlTransaction transaction{db};
+    db::Transaction transaction{
+        admin_repository_.client(),
+        drogon::orm::TransactionType::Immediate
+    };
+    const auto db = transaction.client();
     const repositories::AdminRepository repository{db};
     const repositories::UserRepository users{db};
     if(!is_admin(users, admin_id)) {
@@ -485,8 +475,11 @@ AdminResult<AdminState> AdminService::set_sub_post_deleted(
     std::int64_t now
 ) const
 {
-    const auto db = admin_repository_.client();
-    SqlTransaction transaction{db};
+    db::Transaction transaction{
+        admin_repository_.client(),
+        drogon::orm::TransactionType::Immediate
+    };
+    const auto db = transaction.client();
     const repositories::AdminRepository repository{db};
     const repositories::UserRepository users{db};
     if(!is_admin(users, admin_id)) {
@@ -524,8 +517,11 @@ AdminResult<models::User> AdminService::update_user_role(
         return AdminError::reauth_required;
     }
 
-    const auto db = admin_repository_.client();
-    SqlTransaction transaction{db};
+    db::Transaction transaction{
+        admin_repository_.client(),
+        drogon::orm::TransactionType::Immediate
+    };
+    const auto db = transaction.client();
     const repositories::AdminRepository repository{db};
     const repositories::UserRepository users{db};
     const repositories::SessionRepository sessions{db};
@@ -590,8 +586,11 @@ AdminResult<models::User> AdminService::update_user_ban(
         return AdminError::forbidden;
     }
 
-    const auto db = admin_repository_.client();
-    SqlTransaction transaction{db};
+    db::Transaction transaction{
+        admin_repository_.client(),
+        drogon::orm::TransactionType::Immediate
+    };
+    const auto db = transaction.client();
     const repositories::AdminRepository repository{db};
     const repositories::UserRepository users{db};
     if(!is_admin(users, admin_id)) {
@@ -636,8 +635,11 @@ AdminResult<AdminDeleteResult> AdminService::revoke_session(
         return AdminError::invalid_input;
     }
 
-    const auto db = admin_repository_.client();
-    SqlTransaction transaction{db};
+    db::Transaction transaction{
+        admin_repository_.client(),
+        drogon::orm::TransactionType::Immediate
+    };
+    const auto db = transaction.client();
     const repositories::AdminRepository repository{db};
     const repositories::UserRepository users{db};
     const repositories::SessionRepository sessions{db};

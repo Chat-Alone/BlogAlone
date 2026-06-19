@@ -1,15 +1,13 @@
 #include "services/upload_cleanup_service.h"
 
+#include "db/transaction.h"
 #include "services/upload_file_mutex.h"
 #include "util/crypto.h"
 
 #include <algorithm>
-#include <future>
-#include <memory>
 #include <mutex>
 #include <optional>
 #include <ranges>
-#include <stdexcept>
 #include <string>
 #include <system_error>
 #include <unordered_set>
@@ -122,49 +120,6 @@ namespace {
         && sha256.starts_with(prefix) && known_extension;
 }
 
-class DbTransaction {
-  public:
-    explicit DbTransaction(const drogon::orm::DbClientPtr& db)
-        : commit_promise_{std::make_shared<std::promise<bool>>()}
-        , commit_result_{commit_promise_->get_future()}
-        , transaction_{db->newTransaction(
-            [promise = commit_promise_](bool committed) {
-                promise->set_value(committed);
-            },
-            drogon::orm::TransactionType::Immediate
-        )}
-    {
-    }
-
-    DbTransaction(const DbTransaction&) = delete;
-    DbTransaction& operator=(const DbTransaction&) = delete;
-
-    ~DbTransaction()
-    {
-        if(transaction_) {
-            transaction_->rollback();
-        }
-    }
-
-    [[nodiscard]] drogon::orm::DbClientPtr client() const
-    {
-        return {transaction_.get(), [](drogon::orm::DbClient*) {}};
-    }
-
-    void commit()
-    {
-        transaction_.reset();
-        if(!commit_result_.get()) {
-            throw std::runtime_error{"database transaction commit failed"};
-        }
-    }
-
-  private:
-    std::shared_ptr<std::promise<bool>> commit_promise_;
-    std::future<bool> commit_result_;
-    std::shared_ptr<drogon::orm::Transaction> transaction_;
-};
-
 void prepare_pending_uploads(
     const repositories::UploadRepository& upload_repository,
     std::int64_t cutoff,
@@ -172,7 +127,10 @@ void prepare_pending_uploads(
     UploadCleanupResult& result
 )
 {
-    DbTransaction transaction{upload_repository.client()};
+    db::Transaction transaction{
+        upload_repository.client(),
+        drogon::orm::TransactionType::Immediate
+    };
     const repositories::UploadRepository repository{transaction.client()};
     result.refs_deleted = repository.delete_unattached_refs_before(cutoff);
     result.uploads_marked = repository.mark_unreferenced_uploads_pending(now);

@@ -201,17 +201,6 @@ void handle_login(
 {
     const auto& app_config = config::app_config_from_drogon();
     const auto client_ip = http::client_ip_from(request);
-    auto& limiter = security::request_rate_limiter();
-    if(!limiter.is_allowed(
-        security::RateLimitScope::login,
-        client_ip,
-        std::nullopt,
-        app_config.rate_limits.login
-    )) {
-        callback(error_response(request, http::ErrorCode::rate_limited, "rate limit exceeded"));
-        return;
-    }
-
     const auto body = http::parse_json_body(request);
     if(!body) {
         callback(error_response(request, http::ErrorCode::invalid_argument, "invalid json body"));
@@ -225,6 +214,18 @@ void handle_login(
     };
     if(type_error) {
         callback(error_response(request, http::ErrorCode::invalid_argument, "invalid field type"));
+        return;
+    }
+
+    auto& limiter = security::request_rate_limiter();
+    auto reservation = limiter.reserve(
+        security::RateLimitScope::login,
+        client_ip,
+        std::nullopt,
+        app_config.rate_limits.login
+    );
+    if(!reservation.has_value()) {
+        callback(error_response(request, http::ErrorCode::rate_limited, "rate limit exceeded"));
         return;
     }
 
@@ -243,12 +244,7 @@ void handle_login(
     );
     if(!result.has_value()) {
         if(result.error() == services::AuthError::invalid_credentials) {
-            limiter.record(
-                security::RateLimitScope::login,
-                client_ip,
-                std::nullopt,
-                app_config.rate_limits.login
-            );
+            reservation->commit();
         }
         const auto code = result.error() == services::AuthError::invalid_credentials
             ? http::ErrorCode::unauthenticated
@@ -261,6 +257,7 @@ void handle_login(
         return;
     }
 
+    reservation->cancel();
     limiter.reset(security::RateLimitScope::login, client_ip, std::nullopt);
     callback(auth_success(*result, app_config.session_ttl_seconds));
 }

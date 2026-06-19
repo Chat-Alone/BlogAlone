@@ -1,5 +1,6 @@
 #include "services/forum_service.h"
 
+#include "db/transaction.h"
 #include "util/markdown.h"
 
 #include <drogon/orm/Exception.h>
@@ -7,10 +8,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cstddef>
-#include <future>
-#include <memory>
 #include <optional>
-#include <stdexcept>
 #include <string>
 #include <utility>
 #include <vector>
@@ -27,48 +25,6 @@ constexpr std::size_t kMaxThreadTitleLength = 80;
 constexpr std::size_t kMaxBodyLength = 20'000;
 constexpr std::size_t kMaxSubPostBodyLength = 2'000;
 constexpr int kPostFloorRetryCount = 3;
-class DbTransaction {
-  public:
-    explicit DbTransaction(const drogon::orm::DbClientPtr& db)
-        : commit_promise_{std::make_shared<std::promise<bool>>()}
-        , commit_result_{commit_promise_->get_future()}
-        , transaction_{db->newTransaction([promise = commit_promise_](bool committed) {
-            promise->set_value(committed);
-        })}
-    {
-    }
-
-    DbTransaction(const DbTransaction&) = delete;
-    DbTransaction& operator=(const DbTransaction&) = delete;
-
-    ~DbTransaction()
-    {
-        if(transaction_) {
-            transaction_->rollback();
-        }
-    }
-
-    // Hand out a non-owning view: Drogon commits a transaction only when its
-    // last shared_ptr reference is destroyed, so callers must not keep the
-    // transaction alive past commit().
-    [[nodiscard]] drogon::orm::DbClientPtr client() const
-    {
-        return {transaction_.get(), [](drogon::orm::DbClient*) {}};
-    }
-
-    void commit()
-    {
-        transaction_.reset();
-        if(!commit_result_.get()) {
-            throw std::runtime_error{"database transaction commit failed"};
-        }
-    }
-
-  private:
-    std::shared_ptr<std::promise<bool>> commit_promise_;
-    std::future<bool> commit_result_;
-    std::shared_ptr<drogon::orm::Transaction> transaction_;
-};
 
 [[nodiscard]] std::string trim(std::string_view value)
 {
@@ -377,7 +333,10 @@ ForumResult<models::Thread> ForumService::create_thread(
 
     std::vector<std::string> ref_paths;
     const auto body_html = render_and_collect_refs(author_id, body_md, ref_paths);
-    DbTransaction transaction{forum_repository_.client()};
+    db::Transaction transaction{
+        forum_repository_.client(),
+        drogon::orm::TransactionType::Deferred
+    };
     const repositories::ForumRepository repository{transaction.client()};
     const repositories::UploadRepository upload_repository{transaction.client()};
     const auto thread_id = repository.create_thread(
@@ -423,7 +382,10 @@ ForumResult<models::Thread> ForumService::update_thread(
 
     std::vector<std::string> ref_paths;
     const auto body_html = render_and_collect_refs(user_id, body_md, ref_paths);
-    DbTransaction transaction{forum_repository_.client()};
+    db::Transaction transaction{
+        forum_repository_.client(),
+        drogon::orm::TransactionType::Deferred
+    };
     const repositories::ForumRepository repository{transaction.client()};
     const repositories::UploadRepository upload_repository{transaction.client()};
     if(!repository.update_thread_content(thread_id, title, body_md, body_html, now)) {
@@ -482,7 +444,10 @@ ForumResult<models::PostWithReplies> ForumService::create_post(
     const auto body_html = render_and_collect_refs(author_id, body_md, ref_paths);
     for(int attempt = 0; attempt < kPostFloorRetryCount; ++attempt) {
         try {
-            DbTransaction transaction{forum_repository_.client()};
+            db::Transaction transaction{
+                forum_repository_.client(),
+                drogon::orm::TransactionType::Deferred
+            };
             const repositories::ForumRepository repository{transaction.client()};
             const repositories::UploadRepository upload_repository{transaction.client()};
             if(!repository.find_thread(request.thread_id).has_value()) {
@@ -549,7 +514,10 @@ ForumResult<models::PostWithReplies> ForumService::update_post(
 
     std::vector<std::string> ref_paths;
     const auto body_html = render_and_collect_refs(user_id, body_md, ref_paths);
-    DbTransaction transaction{forum_repository_.client()};
+    db::Transaction transaction{
+        forum_repository_.client(),
+        drogon::orm::TransactionType::Deferred
+    };
     const repositories::ForumRepository repository{transaction.client()};
     const repositories::UploadRepository upload_repository{transaction.client()};
     if(!repository.update_post_content(post_id, body_md, body_html, now)) {
@@ -585,7 +553,10 @@ ForumResult<DeleteResult> ForumService::delete_post(
         return ForumError::forbidden;
     }
 
-    DbTransaction transaction{forum_repository_.client()};
+    db::Transaction transaction{
+        forum_repository_.client(),
+        drogon::orm::TransactionType::Deferred
+    };
     const repositories::ForumRepository repository{transaction.client()};
     if(!repository.soft_delete_post(post_id, now)) {
         return ForumError::not_found;
@@ -617,7 +588,10 @@ ForumResult<models::SubPost> ForumService::create_sub_post(
 
     std::vector<std::string> ref_paths;
     const auto body_html = render_and_collect_refs(author_id, body_md, ref_paths);
-    DbTransaction transaction{forum_repository_.client()};
+    db::Transaction transaction{
+        forum_repository_.client(),
+        drogon::orm::TransactionType::Deferred
+    };
     const repositories::ForumRepository repository{transaction.client()};
     const repositories::UploadRepository upload_repository{transaction.client()};
     const auto post = repository.find_post(request.post_id);
@@ -672,7 +646,10 @@ ForumResult<models::SubPost> ForumService::update_sub_post(
 
     std::vector<std::string> ref_paths;
     const auto body_html = render_and_collect_refs(user_id, body_md, ref_paths);
-    DbTransaction transaction{forum_repository_.client()};
+    db::Transaction transaction{
+        forum_repository_.client(),
+        drogon::orm::TransactionType::Deferred
+    };
     const repositories::ForumRepository repository{transaction.client()};
     const repositories::UploadRepository upload_repository{transaction.client()};
     if(!repository.update_sub_post_content(sub_post_id, body_md, body_html, now)) {
@@ -707,7 +684,10 @@ ForumResult<DeleteResult> ForumService::delete_sub_post(
         return ForumError::forbidden;
     }
 
-    DbTransaction transaction{forum_repository_.client()};
+    db::Transaction transaction{
+        forum_repository_.client(),
+        drogon::orm::TransactionType::Deferred
+    };
     const repositories::ForumRepository repository{transaction.client()};
     if(!repository.soft_delete_sub_post(sub_post_id, now)) {
         return ForumError::not_found;
