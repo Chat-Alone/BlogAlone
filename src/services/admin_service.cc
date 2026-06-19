@@ -332,15 +332,21 @@ AdminResult<ReauthResult> AdminService::reauth(
     }
 
     const auto db = admin_repository_.client();
-    SqlTransaction transaction{db};
-    const repositories::AdminRepository repository{db};
     const repositories::UserRepository users{db};
-    const repositories::SessionRepository sessions{db};
     const auto admin = users.find_by_id(admin_id);
     if(!admin.has_value() || admin->role != models::UserRole::admin) {
         return AdminError::forbidden;
     }
     if(!util::verify_password(password, admin->pwd_hash)) {
+        return AdminError::forbidden;
+    }
+
+    SqlTransaction transaction{db};
+    const repositories::AdminRepository repository{db};
+    const repositories::UserRepository transaction_users{db};
+    const repositories::SessionRepository sessions{db};
+    const auto current_admin = transaction_users.find_by_id(admin_id);
+    if(!current_admin.has_value() || current_admin->role != models::UserRole::admin) {
         return AdminError::forbidden;
     }
     if(!sessions.confirm_admin(session_token_hash, admin_id, now)) {
