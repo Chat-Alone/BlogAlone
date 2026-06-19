@@ -1,5 +1,6 @@
 #include "app/routes.h"
 
+#include "controllers/admin_controller.h"
 #include "controllers/auth_controller.h"
 #include "controllers/forum_controller.h"
 #include "controllers/health_controller.h"
@@ -38,6 +39,7 @@ void register_routes()
     controllers::register_auth_routes();
     controllers::register_forum_routes();
     controllers::register_upload_routes();
+    controllers::register_admin_routes();
 }
 
 }

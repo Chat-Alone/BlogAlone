@@ -20,6 +20,11 @@ class SessionRepository {
     void create(const models::Session& session) const;
     void revoke(std::string_view token_hash, std::int64_t revoked_at) const;
     void revoke_all_for_user(std::int64_t user_id, std::int64_t revoked_at) const;
+    [[nodiscard]] bool confirm_admin(
+        std::string_view token_hash,
+        std::int64_t user_id,
+        std::int64_t confirmed_at
+    ) const;
 
   private:
     [[nodiscard]] drogon::orm::DbClientPtr client() const;

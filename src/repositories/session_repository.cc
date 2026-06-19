@@ -90,4 +90,22 @@ void SessionRepository::revoke_all_for_user(std::int64_t user_id, std::int64_t r
     );
 }
 
+bool SessionRepository::confirm_admin(
+    std::string_view token_hash,
+    std::int64_t user_id,
+    std::int64_t confirmed_at
+) const
+{
+    const auto db = client();
+    const auto result = db->execSqlSync(
+        "UPDATE sessions SET admin_confirmed_at = ? "
+        "WHERE token_hash = ? AND user_id = ? AND revoked_at IS NULL AND expires_at > ?",
+        confirmed_at,
+        std::string{token_hash},
+        user_id,
+        confirmed_at
+    );
+    return result.affectedRows() == 1;
+}
+
 }

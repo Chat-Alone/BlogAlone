@@ -54,6 +54,7 @@ endif()
 add_library(blogalone_core STATIC
     src/app/routes.cc
     src/config/app_config.cc
+    src/controllers/admin_controller.cc
     src/controllers/auth_controller.cc
     src/controllers/forum_controller.cc
     src/controllers/health_controller.cc
@@ -69,11 +70,13 @@ add_library(blogalone_core STATIC
     src/http/static_files.cc
     src/models/user.cc
     src/plugins/database_migration_plugin.cc
+    src/repositories/admin_repository.cc
     src/repositories/forum_repository.cc
     src/repositories/health_repository.cc
     src/repositories/session_repository.cc
     src/repositories/upload_repository.cc
     src/repositories/user_repository.cc
+    src/services/admin_service.cc
     src/services/auth_service.cc
     src/services/forum_service.cc
     src/services/health_service.cc
@@ -126,6 +129,7 @@ if(BUILD_TESTING)
     find_package(GTest CONFIG REQUIRED)
 
     add_executable(blogalone_unit_tests
+        tests/unit/admin_test.cc
         tests/unit/auth_test.cc
         tests/unit/deps_smoke_test.cc
         tests/unit/forum_test.cc

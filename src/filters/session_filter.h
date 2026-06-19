@@ -34,6 +34,15 @@ class RequireAuthFilter : public drogon::HttpFilter<RequireAuthFilter> {
     ) override;
 };
 
+class RequireAdminFilter : public drogon::HttpFilter<RequireAdminFilter> {
+  public:
+    void doFilter(
+        const drogon::HttpRequestPtr& request,
+        drogon::FilterCallback&& failure,
+        drogon::FilterChainCallback&& chain
+    ) override;
+};
+
 void ensure_session_filters_registered();
 
 }

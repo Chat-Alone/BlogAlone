@@ -102,10 +102,29 @@ void RequireAuthFilter::doFilter(
     chain();
 }
 
+void RequireAdminFilter::doFilter(
+    const drogon::HttpRequestPtr& request,
+    drogon::FilterCallback&& failure,
+    drogon::FilterChainCallback&& chain
+)
+{
+    const auto session = http::session_context_of(request);
+    if(!session.has_value()) {
+        failure(unauthenticated_response(request));
+        return;
+    }
+    if(session->role != models::UserRole::admin) {
+        failure(forbidden_response(request, "administrator access required"));
+        return;
+    }
+    chain();
+}
+
 void ensure_session_filters_registered()
 {
     static_cast<void>(SessionFilter::classTypeName());
     static_cast<void>(RequireAuthFilter::classTypeName());
+    static_cast<void>(RequireAdminFilter::classTypeName());
 }
 
 }

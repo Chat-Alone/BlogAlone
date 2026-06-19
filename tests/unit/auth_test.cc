@@ -486,9 +486,13 @@ TEST(FilterRegistrationTest, RegistersAuthFiltersForDrogonLookup)
     const auto require_auth_filter = std::unique_ptr<drogon::DrObjectBase>{
         drogon::DrClassMap::newObject("blogalone::filters::RequireAuthFilter")
     };
+    const auto require_admin_filter = std::unique_ptr<drogon::DrObjectBase>{
+        drogon::DrClassMap::newObject("blogalone::filters::RequireAdminFilter")
+    };
 
     EXPECT_NE(session_filter.get(), nullptr);
     EXPECT_NE(require_auth_filter.get(), nullptr);
+    EXPECT_NE(require_admin_filter.get(), nullptr);
 }
 
 TEST(CsrfGuardTest, AllowsSameOriginRequestWithValidToken)
