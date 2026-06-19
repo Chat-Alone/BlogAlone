@@ -17,12 +17,15 @@ namespace {
         .size = row["size"].as<std::int64_t>(),
         .width = row["width"].isNull() ? std::nullopt : std::optional{row["width"].as<std::int64_t>()},
         .height = row["height"].isNull() ? std::nullopt : std::optional{row["height"].as<std::int64_t>()},
-        .created_at = row["created_at"].as<std::int64_t>()
+        .created_at = row["created_at"].as<std::int64_t>(),
+        .pending_delete_at = row["pending_delete_at"].isNull()
+            ? std::nullopt
+            : std::optional{row["pending_delete_at"].as<std::int64_t>()}
     };
 }
 
 constexpr std::string_view kSelectColumns =
-    "SELECT id, sha256, path, mime, size, width, height, created_at FROM uploads";
+    "SELECT id, sha256, path, mime, size, width, height, created_at, pending_delete_at FROM uploads";
 
 }
 
@@ -94,10 +97,13 @@ bool UploadRepository::create_ref(
     const auto db = client();
     const auto rows = db->execSqlSync(
         "INSERT OR IGNORE INTO upload_refs (owner_id, upload_id, created_at) "
-        "VALUES (?, ?, ?) RETURNING id",
+        "SELECT ?, ?, ? WHERE EXISTS ("
+        "SELECT 1 FROM uploads WHERE id = ? AND pending_delete_at IS NULL"
+        ") RETURNING id",
         owner_id,
         upload_id,
-        created_at
+        created_at,
+        upload_id
     );
     return !rows.empty();
 }
@@ -118,28 +124,40 @@ bool UploadRepository::owner_has_upload_path(std::int64_t owner_id, std::string_
     const auto db = client();
     const auto rows = db->execSqlSync(
         "SELECT 1 FROM upload_refs r JOIN uploads u ON u.id = r.upload_id "
-        "WHERE r.owner_id = ? AND u.path = ?",
+        "WHERE r.owner_id = ? AND u.path = ? AND u.pending_delete_at IS NULL",
         owner_id,
         std::string{path}
     );
     return !rows.empty();
 }
 
-void UploadRepository::mark_ref_attached(
+bool UploadRepository::upload_path_is_active(std::string_view path) const
+{
+    const auto db = client();
+    const auto rows = db->execSqlSync(
+        "SELECT 1 FROM uploads WHERE path = ? AND pending_delete_at IS NULL",
+        std::string{path}
+    );
+    return !rows.empty();
+}
+
+bool UploadRepository::mark_ref_attached(
     std::int64_t owner_id,
     std::string_view path,
     std::int64_t attached_at
 ) const
 {
     const auto db = client();
-    db->execSqlSync(
+    const auto rows = db->execSqlSync(
         "UPDATE upload_refs SET attached_at = ? "
         "WHERE attached_at IS NULL AND owner_id = ? AND upload_id IN "
-        "(SELECT id FROM uploads WHERE path = ?)",
+        "(SELECT id FROM uploads WHERE path = ? AND pending_delete_at IS NULL) "
+        "RETURNING id",
         attached_at,
         owner_id,
         std::string{path}
     );
+    return !rows.empty();
 }
 
 std::int64_t UploadRepository::delete_unattached_refs_before(std::int64_t cutoff) const
@@ -152,21 +170,56 @@ std::int64_t UploadRepository::delete_unattached_refs_before(std::int64_t cutoff
     return static_cast<std::int64_t>(rows.size());
 }
 
-std::vector<models::Upload> UploadRepository::delete_unreferenced_uploads() const
+std::int64_t UploadRepository::mark_unreferenced_uploads_pending(std::int64_t pending_at) const
 {
     const auto db = client();
     const auto rows = db->execSqlSync(
-        "DELETE FROM uploads "
-        "WHERE NOT EXISTS (SELECT 1 FROM upload_refs WHERE upload_id = uploads.id) "
-        "RETURNING id, sha256, path, mime, size, width, height, created_at"
+        "UPDATE uploads SET pending_delete_at = ? "
+        "WHERE pending_delete_at IS NULL "
+        "AND NOT EXISTS (SELECT 1 FROM upload_refs WHERE upload_id = uploads.id) "
+        "RETURNING id",
+        pending_at
     );
+    return static_cast<std::int64_t>(rows.size());
+}
 
+std::vector<models::Upload> UploadRepository::list_pending_uploads() const
+{
+    const auto db = client();
+    const auto rows = db->execSqlSync(
+        std::string{kSelectColumns} + " WHERE pending_delete_at IS NOT NULL ORDER BY id"
+    );
     std::vector<models::Upload> uploads;
     uploads.reserve(rows.size());
     for(const auto& row : rows) {
         uploads.push_back(row_to_upload(row));
     }
     return uploads;
+}
+
+bool UploadRepository::delete_pending_upload(std::int64_t upload_id) const
+{
+    const auto db = client();
+    const auto rows = db->execSqlSync(
+        "DELETE FROM uploads WHERE id = ? AND pending_delete_at IS NOT NULL "
+        "AND NOT EXISTS (SELECT 1 FROM upload_refs WHERE upload_id = uploads.id) "
+        "RETURNING id",
+        upload_id
+    );
+    return !rows.empty();
+}
+
+std::vector<std::string> UploadRepository::list_tracked_upload_paths() const
+{
+    const auto db = client();
+    const auto rows = db->execSqlSync("SELECT path FROM uploads ORDER BY id");
+
+    std::vector<std::string> paths;
+    paths.reserve(rows.size());
+    for(const auto& row : rows) {
+        paths.push_back(row["path"].as<std::string>());
+    }
+    return paths;
 }
 
 }

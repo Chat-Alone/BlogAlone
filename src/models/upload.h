@@ -15,6 +15,7 @@ struct Upload {
     std::optional<std::int64_t> width;
     std::optional<std::int64_t> height;
     std::int64_t created_at{};
+    std::optional<std::int64_t> pending_delete_at;
 };
 
 }

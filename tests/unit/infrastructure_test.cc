@@ -103,7 +103,7 @@ TEST(InfrastructureTest, ParsesApplicationCustomConfig)
 {
     Json::Value custom_config;
     custom_config["trusted_proxies"].append("127.0.0.1");
-    custom_config["trusted_proxies"].append("10.0.0.1");
+    custom_config["trusted_proxies"].append("2001:0db8::1");
     custom_config["uploads_root"] = "var/uploads";
     custom_config["web_root"] = "public";
     custom_config["session_ttl_seconds"] = 60;
@@ -127,6 +127,7 @@ TEST(InfrastructureTest, ParsesApplicationCustomConfig)
 
     ASSERT_EQ(parsed.trusted_proxies.size(), 2);
     EXPECT_EQ(parsed.trusted_proxies.at(0), "127.0.0.1");
+    EXPECT_EQ(parsed.trusted_proxies.at(1), "2001:db8::1");
     EXPECT_EQ(parsed.uploads_root, std::filesystem::path{"var/uploads"});
     EXPECT_EQ(parsed.web_root, std::filesystem::path{"public"});
     EXPECT_EQ(parsed.session_ttl_seconds, 60);
@@ -151,6 +152,17 @@ TEST(InfrastructureTest, RejectsInvalidCustomConfig)
 {
     Json::Value custom_config;
     custom_config["session_ttl_seconds"] = 0;
+
+    EXPECT_THROW(
+        static_cast<void>(blogalone::config::app_config_from_json(custom_config)),
+        std::invalid_argument
+    );
+}
+
+TEST(InfrastructureTest, RejectsInvalidTrustedProxy)
+{
+    Json::Value custom_config;
+    custom_config["trusted_proxies"].append("not-an-ip");
 
     EXPECT_THROW(
         static_cast<void>(blogalone::config::app_config_from_json(custom_config)),

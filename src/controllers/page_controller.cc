@@ -2,8 +2,10 @@
 
 #include "config/app_config.h"
 #include "http/api_error.h"
+#include "http/handler_guard.h"
 #include "http/request_context.h"
 #include "http/static_files.h"
+#include "repositories/upload_repository.h"
 
 #include <drogon/drogon.h>
 
@@ -25,7 +27,7 @@ namespace {
 
 void send_static_file(
     const drogon::HttpRequestPtr& request,
-    std::function<void(const drogon::HttpResponsePtr&)>&& callback,
+    const std::function<void(const drogon::HttpResponsePtr&)>& callback,
     const std::filesystem::path& root,
     const std::string& relative_path
 )
@@ -41,11 +43,15 @@ void send_static_file(
 
 void send_upload_file(
     const drogon::HttpRequestPtr& request,
-    std::function<void(const drogon::HttpResponsePtr&)>&& callback,
+    const std::function<void(const drogon::HttpResponsePtr&)>& callback,
     const std::filesystem::path& root,
     const std::string& relative_path
 )
 {
+    if(!repositories::UploadRepository{}.upload_path_is_active(relative_path)) {
+        callback(not_found_response(request));
+        return;
+    }
     const auto file = http::resolve_existing_resource(root, relative_path);
     if(!file) {
         callback(not_found_response(request));
@@ -65,10 +71,10 @@ void register_page_routes()
         "/",
         [](const drogon::HttpRequestPtr& request,
            std::function<void(const drogon::HttpResponsePtr&)>&& callback) {
-            const auto app_config = config::app_config_from_drogon();
+            const auto& app_config = config::app_config_from_drogon();
             send_static_file(
                 request,
-                std::move(callback),
+                callback,
                 app_config.web_root / "pages",
                 "index.html"
             );
@@ -81,10 +87,10 @@ void register_page_routes()
         [](const drogon::HttpRequestPtr& request,
            std::function<void(const drogon::HttpResponsePtr&)>&& callback,
            std::string) {
-            const auto app_config = config::app_config_from_drogon();
+            const auto& app_config = config::app_config_from_drogon();
             send_static_file(
                 request,
-                std::move(callback),
+                callback,
                 app_config.web_root / "pages",
                 "thread.html"
             );
@@ -97,10 +103,10 @@ void register_page_routes()
         [](const drogon::HttpRequestPtr& request,
            std::function<void(const drogon::HttpResponsePtr&)>&& callback,
            std::string relative_path) {
-            const auto app_config = config::app_config_from_drogon();
+            const auto& app_config = config::app_config_from_drogon();
             send_static_file(
                 request,
-                std::move(callback),
+                callback,
                 app_config.web_root / "static",
                 relative_path
             );
@@ -113,8 +119,10 @@ void register_page_routes()
         [](const drogon::HttpRequestPtr& request,
            std::function<void(const drogon::HttpResponsePtr&)>&& callback,
            std::string relative_path) {
-            const auto app_config = config::app_config_from_drogon();
-            send_upload_file(request, std::move(callback), app_config.uploads_root, relative_path);
+            const auto& app_config = config::app_config_from_drogon();
+            http::run_guarded_request(request, callback, "uploads.file", [&]() {
+                send_upload_file(request, callback, app_config.uploads_root, relative_path);
+            });
         },
         {drogon::Get}
     );

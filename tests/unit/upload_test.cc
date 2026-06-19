@@ -11,6 +11,7 @@
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
+#include <fstream>
 #include <optional>
 #include <span>
 #include <stdexcept>
@@ -261,6 +262,20 @@ TEST(ImageDecodeTest, RejectsWebpAboveDecodedSizeLimit)
     return std::string{data.begin(), data.end()};
 }
 
+void write_bytes(const std::filesystem::path& path, const std::vector<unsigned char>& data)
+{
+    std::filesystem::create_directories(path.parent_path());
+    std::ofstream file{path, std::ios::binary | std::ios::trunc};
+    if(!file) {
+        throw std::runtime_error{"unable to write test upload"};
+    }
+    const auto content = bytes_to_string(data);
+    file.write(content.data(), static_cast<std::streamsize>(content.size()));
+    if(!file) {
+        throw std::runtime_error{"unable to write complete test upload"};
+    }
+}
+
 [[nodiscard]] std::int64_t regular_file_count(const std::filesystem::path& root)
 {
     std::error_code error;
@@ -383,6 +398,7 @@ TEST_F(UploadServiceTest, StoresValidPng)
     const auto relative = result->url.substr(std::string_view{"/uploads/"}.size());
     EXPECT_TRUE(std::filesystem::exists(workspace_.path() / "uploads" / relative));
     EXPECT_TRUE(upload_repository_.owner_has_upload_path(owner, relative));
+    EXPECT_TRUE(upload_repository_.upload_path_is_active(relative));
 }
 
 TEST_F(UploadServiceTest, RejectsPngHeaderOnly)
@@ -529,15 +545,16 @@ TEST_F(UploadServiceTest, RemovesExpiredOrphanAndKeepsAttachedUpload)
 
     const auto orphan_path = orphan->url.substr(std::string_view{"/uploads/"}.size());
     const auto attached_path = attached->url.substr(std::string_view{"/uploads/"}.size());
-    upload_repository_.mark_ref_attached(owner, attached_path, now - 80'000);
+    EXPECT_TRUE(upload_repository_.mark_ref_attached(owner, attached_path, now - 80'000));
 
     const blogalone::services::UploadCleanupService cleanup{
         workspace_.path() / "uploads",
         blogalone::repositories::UploadRepository{client_}
     };
-    const auto result = cleanup.remove_orphans(now - 86'400);
+    const auto result = cleanup.remove_orphans(now - 86'400, now);
 
     EXPECT_EQ(result.refs_deleted, 1);
+    EXPECT_EQ(result.uploads_marked, 1);
     EXPECT_EQ(result.uploads_deleted, 1);
     EXPECT_EQ(result.files_deleted, 1);
     EXPECT_EQ(result.file_failures, 0);
@@ -569,14 +586,78 @@ TEST_F(UploadServiceTest, KeepsFreshUnattachedUpload)
         workspace_.path() / "uploads",
         blogalone::repositories::UploadRepository{client_}
     };
-    const auto result = cleanup.remove_orphans(now - 86'400);
+    const auto result = cleanup.remove_orphans(now - 86'400, now);
 
     EXPECT_EQ(result.refs_deleted, 0);
+    EXPECT_EQ(result.uploads_marked, 0);
     EXPECT_EQ(result.uploads_deleted, 0);
     EXPECT_EQ(result.files_deleted, 0);
     EXPECT_EQ(result.file_failures, 0);
     const auto relative = upload->url.substr(std::string_view{"/uploads/"}.size());
     EXPECT_TRUE(std::filesystem::exists(workspace_.path() / "uploads" / relative));
+}
+
+TEST_F(UploadServiceTest, RetriesPendingUploadAfterFileDeletionFailure)
+{
+    constexpr std::int64_t now = 1'700'100'000;
+    const auto owner = insert_user("alice");
+    const auto upload = service_.store_image(
+        owner,
+        bytes_to_string(make_valid_1x1_png()),
+        now - 90'000
+    );
+    ASSERT_TRUE(upload.has_value());
+
+    const auto relative = upload->url.substr(std::string_view{"/uploads/"}.size());
+    const auto path = workspace_.path() / "uploads" / relative;
+    ASSERT_TRUE(std::filesystem::remove(path));
+    ASSERT_TRUE(std::filesystem::create_directory(path));
+
+    const blogalone::services::UploadCleanupService cleanup{
+        workspace_.path() / "uploads",
+        blogalone::repositories::UploadRepository{client_}
+    };
+    const auto first = cleanup.remove_orphans(now - 86'400, now);
+
+    EXPECT_EQ(first.refs_deleted, 1);
+    EXPECT_EQ(first.uploads_marked, 1);
+    EXPECT_EQ(first.uploads_deleted, 0);
+    EXPECT_EQ(first.file_failures, 1);
+    EXPECT_FALSE(upload_repository_.upload_path_is_active(relative));
+    const auto pending = client_->execSqlSync(
+        "SELECT pending_delete_at FROM uploads WHERE path = ?",
+        relative
+    );
+    ASSERT_EQ(pending.size(), 1);
+    EXPECT_FALSE(pending.at(0)["pending_delete_at"].isNull());
+
+    ASSERT_TRUE(std::filesystem::remove(path));
+    const auto second = cleanup.remove_orphans(now - 86'400, now + 60);
+
+    EXPECT_EQ(second.uploads_marked, 0);
+    EXPECT_EQ(second.uploads_deleted, 1);
+    EXPECT_EQ(second.file_failures, 0);
+    EXPECT_TRUE(client_->execSqlSync("SELECT id FROM uploads WHERE path = ?", relative).empty());
+}
+
+TEST_F(UploadServiceTest, RemovesLegacyUntrackedUploadFile)
+{
+    constexpr std::int64_t now = 1'700'100'000;
+    const std::string sha256(64, 'a');
+    const auto relative = std::filesystem::path{"2026"} / "06" / "aa" / (sha256 + ".png");
+    const auto path = workspace_.path() / "uploads" / relative;
+    write_bytes(path, make_valid_1x1_png());
+
+    const blogalone::services::UploadCleanupService cleanup{
+        workspace_.path() / "uploads",
+        blogalone::repositories::UploadRepository{client_}
+    };
+    const auto result = cleanup.remove_orphans(now - 86'400, now);
+
+    EXPECT_EQ(result.untracked_files_deleted, 1);
+    EXPECT_EQ(result.files_deleted, 1);
+    EXPECT_EQ(result.file_failures, 0);
+    EXPECT_FALSE(std::filesystem::exists(path));
 }
 
 }

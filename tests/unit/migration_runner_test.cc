@@ -289,9 +289,15 @@ TEST(MigrationRunnerTest, AppliesProjectInitialMigration)
     });
 
     TestDatabase database{database_path};
-    EXPECT_EQ(applied.size(), 1);
+    EXPECT_EQ(applied.size(), 2);
     EXPECT_TRUE(database.table_exists("users"));
     EXPECT_TRUE(database.table_exists("threads"));
     EXPECT_TRUE(database.table_exists("schema_migrations"));
-    EXPECT_EQ(database.scalar_int("SELECT COUNT(*) FROM schema_migrations"), 1);
+    EXPECT_EQ(
+        database.scalar_int(
+            "SELECT COUNT(*) FROM pragma_table_info('uploads') WHERE name = 'pending_delete_at'"
+        ),
+        1
+    );
+    EXPECT_EQ(database.scalar_int("SELECT COUNT(*) FROM schema_migrations"), 2);
 }

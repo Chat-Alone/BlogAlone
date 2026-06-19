@@ -31,9 +31,17 @@ class UploadRepository {
     [[nodiscard]] bool create_ref(std::int64_t owner_id, std::int64_t upload_id, std::int64_t created_at) const;
     [[nodiscard]] std::int64_t count_owner_refs_since(std::int64_t owner_id, std::int64_t since) const;
     [[nodiscard]] bool owner_has_upload_path(std::int64_t owner_id, std::string_view path) const;
-    void mark_ref_attached(std::int64_t owner_id, std::string_view path, std::int64_t attached_at) const;
+    [[nodiscard]] bool upload_path_is_active(std::string_view path) const;
+    [[nodiscard]] bool mark_ref_attached(
+        std::int64_t owner_id,
+        std::string_view path,
+        std::int64_t attached_at
+    ) const;
     [[nodiscard]] std::int64_t delete_unattached_refs_before(std::int64_t cutoff) const;
-    [[nodiscard]] std::vector<models::Upload> delete_unreferenced_uploads() const;
+    [[nodiscard]] std::int64_t mark_unreferenced_uploads_pending(std::int64_t pending_at) const;
+    [[nodiscard]] std::vector<models::Upload> list_pending_uploads() const;
+    [[nodiscard]] bool delete_pending_upload(std::int64_t upload_id) const;
+    [[nodiscard]] std::vector<std::string> list_tracked_upload_paths() const;
 
   private:
     std::string db_client_name_;

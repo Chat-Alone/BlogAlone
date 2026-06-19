@@ -287,7 +287,7 @@ std::string ForumService::render_and_collect_refs(
     return util::render_markdown(body_md, predicate);
 }
 
-void ForumService::mark_refs_attached(
+bool ForumService::mark_refs_attached(
     const repositories::UploadRepository& upload_repository,
     const std::vector<std::string>& referenced_paths,
     std::int64_t author_id,
@@ -295,8 +295,11 @@ void ForumService::mark_refs_attached(
 ) const
 {
     for(const auto& path : referenced_paths) {
-        upload_repository.mark_ref_attached(author_id, path, now);
+        if(!upload_repository.mark_ref_attached(author_id, path, now)) {
+            return false;
+        }
     }
+    return true;
 }
 
 std::vector<models::Forum> ForumService::list_forums() const
@@ -389,7 +392,9 @@ ForumResult<models::Thread> ForumService::create_thread(
     if(!thread.has_value()) {
         return ForumError::not_found;
     }
-    mark_refs_attached(upload_repository, ref_paths, author_id, now);
+    if(!mark_refs_attached(upload_repository, ref_paths, author_id, now)) {
+        return ForumError::not_found;
+    }
     transaction.commit();
     return *thread;
 }
@@ -428,7 +433,9 @@ ForumResult<models::Thread> ForumService::update_thread(
     if(!updated.has_value()) {
         return ForumError::not_found;
     }
-    mark_refs_attached(upload_repository, ref_paths, user_id, now);
+    if(!mark_refs_attached(upload_repository, ref_paths, user_id, now)) {
+        return ForumError::not_found;
+    }
     transaction.commit();
     return *updated;
 }
@@ -502,7 +509,9 @@ ForumResult<models::PostWithReplies> ForumService::create_post(
                 return ForumError::not_found;
             }
             auto result = post_with_replies(repository, *post);
-            mark_refs_attached(upload_repository, ref_paths, author_id, now);
+            if(!mark_refs_attached(upload_repository, ref_paths, author_id, now)) {
+                return ForumError::not_found;
+            }
             transaction.commit();
             return result;
         } catch(const drogon::orm::DrogonDbException& error) {
@@ -551,7 +560,9 @@ ForumResult<models::PostWithReplies> ForumService::update_post(
         return ForumError::not_found;
     }
     auto result = post_with_replies(repository, *updated);
-    mark_refs_attached(upload_repository, ref_paths, user_id, now);
+    if(!mark_refs_attached(upload_repository, ref_paths, user_id, now)) {
+        return ForumError::not_found;
+    }
     transaction.commit();
     return result;
 }
@@ -632,7 +643,9 @@ ForumResult<models::SubPost> ForumService::create_sub_post(
     if(!sub_post.has_value()) {
         return ForumError::not_found;
     }
-    mark_refs_attached(upload_repository, ref_paths, author_id, now);
+    if(!mark_refs_attached(upload_repository, ref_paths, author_id, now)) {
+        return ForumError::not_found;
+    }
     transaction.commit();
     return *sub_post;
 }
@@ -669,7 +682,9 @@ ForumResult<models::SubPost> ForumService::update_sub_post(
     if(!updated.has_value()) {
         return ForumError::not_found;
     }
-    mark_refs_attached(upload_repository, ref_paths, user_id, now);
+    if(!mark_refs_attached(upload_repository, ref_paths, user_id, now)) {
+        return ForumError::not_found;
+    }
     transaction.commit();
     return *updated;
 }

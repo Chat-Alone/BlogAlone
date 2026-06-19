@@ -1,9 +1,20 @@
 #include "services/upload_cleanup_service.h"
 
+#include "services/upload_file_mutex.h"
+#include "util/crypto.h"
+
+#include <algorithm>
+#include <future>
+#include <memory>
+#include <mutex>
 #include <optional>
+#include <ranges>
+#include <stdexcept>
 #include <string>
 #include <system_error>
+#include <unordered_set>
 #include <utility>
+#include <vector>
 
 namespace blogalone::services {
 namespace {
@@ -77,6 +88,187 @@ namespace {
     return std::filesystem::remove(*path, error) && !error;
 }
 
+[[nodiscard]] bool is_ascii_digits(std::string_view value)
+{
+    return std::ranges::all_of(value, [](char ch) {
+        return ch >= '0' && ch <= '9';
+    });
+}
+
+[[nodiscard]] bool is_managed_upload_path(const std::filesystem::path& relative)
+{
+    std::vector<std::string> components;
+    components.reserve(4);
+    for(const auto& component : relative) {
+        components.push_back(component.string());
+    }
+    if(components.size() != 4) {
+        return false;
+    }
+
+    const auto& year = components.at(0);
+    const auto& month = components.at(1);
+    const auto& prefix = components.at(2);
+    const std::filesystem::path filename{components.at(3)};
+    const auto sha256 = filename.stem().string();
+    const auto extension = filename.extension().string();
+    const auto known_extension = extension == ".jpg" || extension == ".png"
+        || extension == ".gif" || extension == ".webp";
+
+    return year.size() == 4 && is_ascii_digits(year)
+        && month.size() == 2 && is_ascii_digits(month) && month >= "01" && month <= "12"
+        && prefix.size() == 2 && util::is_lower_hex(prefix)
+        && sha256.size() == 64 && util::is_lower_hex(sha256)
+        && sha256.starts_with(prefix) && known_extension;
+}
+
+class DbTransaction {
+  public:
+    explicit DbTransaction(const drogon::orm::DbClientPtr& db)
+        : commit_promise_{std::make_shared<std::promise<bool>>()}
+        , commit_result_{commit_promise_->get_future()}
+        , transaction_{db->newTransaction(
+            [promise = commit_promise_](bool committed) {
+                promise->set_value(committed);
+            },
+            drogon::orm::TransactionType::Immediate
+        )}
+    {
+    }
+
+    DbTransaction(const DbTransaction&) = delete;
+    DbTransaction& operator=(const DbTransaction&) = delete;
+
+    ~DbTransaction()
+    {
+        if(transaction_) {
+            transaction_->rollback();
+        }
+    }
+
+    [[nodiscard]] drogon::orm::DbClientPtr client() const
+    {
+        return {transaction_.get(), [](drogon::orm::DbClient*) {}};
+    }
+
+    void commit()
+    {
+        transaction_.reset();
+        if(!commit_result_.get()) {
+            throw std::runtime_error{"database transaction commit failed"};
+        }
+    }
+
+  private:
+    std::shared_ptr<std::promise<bool>> commit_promise_;
+    std::future<bool> commit_result_;
+    std::shared_ptr<drogon::orm::Transaction> transaction_;
+};
+
+void prepare_pending_uploads(
+    const repositories::UploadRepository& upload_repository,
+    std::int64_t cutoff,
+    std::int64_t now,
+    UploadCleanupResult& result
+)
+{
+    DbTransaction transaction{upload_repository.client()};
+    const repositories::UploadRepository repository{transaction.client()};
+    result.refs_deleted = repository.delete_unattached_refs_before(cutoff);
+    result.uploads_marked = repository.mark_unreferenced_uploads_pending(now);
+    transaction.commit();
+}
+
+void remove_pending_uploads(
+    const std::filesystem::path& uploads_root,
+    const repositories::UploadRepository& upload_repository,
+    UploadCleanupResult& result
+)
+{
+    const auto pending_uploads = upload_repository.list_pending_uploads();
+    for(const auto& upload : pending_uploads) {
+        const std::scoped_lock file_lock{upload_file_mutex()};
+        bool existed = false;
+        if(!remove_upload_file(uploads_root, upload.path, existed)) {
+            ++result.file_failures;
+            continue;
+        }
+        if(existed) {
+            ++result.files_deleted;
+        }
+        if(upload_repository.delete_pending_upload(upload.id)) {
+            ++result.uploads_deleted;
+        }
+    }
+}
+
+void remove_untracked_upload_files(
+    const std::filesystem::path& uploads_root,
+    const repositories::UploadRepository& upload_repository,
+    UploadCleanupResult& result
+)
+{
+    const std::scoped_lock file_lock{upload_file_mutex()};
+    const auto tracked_paths = upload_repository.list_tracked_upload_paths();
+    const std::unordered_set<std::string> tracked{tracked_paths.begin(), tracked_paths.end()};
+
+    std::error_code error;
+    if(!std::filesystem::exists(uploads_root, error)) {
+        if(error) {
+            ++result.file_failures;
+        }
+        return;
+    }
+
+    std::filesystem::recursive_directory_iterator iterator{
+        uploads_root,
+        std::filesystem::directory_options::skip_permission_denied,
+        error
+    };
+    const std::filesystem::recursive_directory_iterator end;
+    if(error) {
+        ++result.file_failures;
+        return;
+    }
+
+    while(iterator != end) {
+        const auto entry = *iterator;
+        iterator.increment(error);
+        if(error) {
+            ++result.file_failures;
+            break;
+        }
+
+        if(!entry.is_regular_file(error)) {
+            if(error) {
+                ++result.file_failures;
+                error.clear();
+            }
+            continue;
+        }
+        const auto relative = std::filesystem::relative(entry.path(), uploads_root, error);
+        if(error) {
+            ++result.file_failures;
+            error.clear();
+            continue;
+        }
+        const auto relative_path = relative.generic_string();
+        if(!is_managed_upload_path(relative) || tracked.contains(relative_path)) {
+            continue;
+        }
+
+        bool existed = false;
+        if(remove_upload_file(uploads_root, relative_path, existed)) {
+            if(existed) {
+                ++result.files_deleted;
+                ++result.untracked_files_deleted;
+            }
+        } else {
+            ++result.file_failures;
+        }
+    }
+}
+
 }
 
 UploadCleanupService::UploadCleanupService(
@@ -88,23 +280,15 @@ UploadCleanupService::UploadCleanupService(
 {
 }
 
-UploadCleanupResult UploadCleanupService::remove_orphans(std::int64_t cutoff) const
+UploadCleanupResult UploadCleanupService::remove_orphans(
+    std::int64_t cutoff,
+    std::int64_t now
+) const
 {
     UploadCleanupResult result;
-    result.refs_deleted = upload_repository_.delete_unattached_refs_before(cutoff);
-    const auto uploads = upload_repository_.delete_unreferenced_uploads();
-    result.uploads_deleted = static_cast<std::int64_t>(uploads.size());
-
-    for(const auto& upload : uploads) {
-        bool existed = false;
-        if(remove_upload_file(uploads_root_, upload.path, existed)) {
-            if(existed) {
-                ++result.files_deleted;
-            }
-        } else {
-            ++result.file_failures;
-        }
-    }
+    prepare_pending_uploads(upload_repository_, cutoff, now, result);
+    remove_pending_uploads(uploads_root_, upload_repository_, result);
+    remove_untracked_upload_files(uploads_root_, upload_repository_, result);
     return result;
 }
 

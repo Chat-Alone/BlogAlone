@@ -1,5 +1,6 @@
 #include "services/upload_service.h"
 
+#include "services/upload_file_mutex.h"
 #include "util/crypto.h"
 #include "util/image.h"
 
@@ -8,6 +9,7 @@
 #include <fstream>
 #include <future>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <span>
 #include <stdexcept>
@@ -203,6 +205,7 @@ UploadResult<UploadDescriptor> UploadService::store_image(
     relative_path = year_month_prefix(now) + "/" + sha256.substr(0, 2) + "/" + sha256
         + "." + std::string{util::extension_for(image->format)};
     const auto absolute = uploads_root_ / std::filesystem::path{relative_path};
+    const std::scoped_lock file_lock{upload_file_mutex()};
     std::error_code fs_error;
     const bool file_existed = std::filesystem::is_regular_file(absolute, fs_error);
     if(!file_existed && !write_file(absolute, content)) {
@@ -230,7 +233,7 @@ UploadResult<UploadDescriptor> UploadService::store_image(
                 upload_id = *inserted;
             } else {
                 const auto existing = repository.find_by_sha256(sha256);
-                if(existing.has_value()) {
+                if(existing.has_value() && !existing->pending_delete_at.has_value()) {
                     upload_id = existing->id;
                     relative_path = existing->path;
                 } else {
@@ -238,7 +241,10 @@ UploadResult<UploadDescriptor> UploadService::store_image(
                 }
             }
             if(!db_error.has_value()) {
-                static_cast<void>(repository.create_ref(owner_id, upload_id, now));
+                const auto created_ref = repository.create_ref(owner_id, upload_id, now);
+                if(!created_ref && !repository.owner_has_upload_path(owner_id, relative_path)) {
+                    db_error = UploadError::internal_error;
+                }
             }
         }
         if(!db_error.has_value()) {

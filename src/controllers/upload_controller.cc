@@ -76,7 +76,7 @@ void handle_create_upload(const drogon::HttpRequestPtr& request, const HttpCallb
         return;
     }
 
-    const auto app_config = config::app_config_from_drogon();
+    const auto& app_config = config::app_config_from_drogon();
     if(!security::request_rate_limiter().consume(
         security::RateLimitScope::upload,
         http::client_ip_from(request),

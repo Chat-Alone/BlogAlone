@@ -1,5 +1,7 @@
 #include "config/app_config.h"
 
+#include "util/ip_address.h"
+
 #include <drogon/drogon.h>
 #include <json/value.h>
 
@@ -203,7 +205,7 @@ namespace {
     };
 }
 
-[[nodiscard]] std::vector<std::string> string_array_or_empty(
+[[nodiscard]] std::vector<std::string> normalized_ip_array_or_empty(
     const Json::Value& config,
     std::string_view key
 )
@@ -221,7 +223,11 @@ namespace {
         if(!item.isString() || item.asString().empty()) {
             throw std::invalid_argument{"custom_config." + key_name + " must contain strings"};
         }
-        values.push_back(item.asString());
+        const auto normalized = util::normalize_ip_address(item.asString());
+        if(!normalized.has_value()) {
+            throw std::invalid_argument{"custom_config." + key_name + " contains an invalid IP address"};
+        }
+        values.push_back(*normalized);
     }
     return values;
 }
@@ -231,7 +237,7 @@ namespace {
 AppConfig app_config_from_json(const Json::Value& custom_config)
 {
     return AppConfig{
-        .trusted_proxies = string_array_or_empty(custom_config, "trusted_proxies"),
+        .trusted_proxies = normalized_ip_array_or_empty(custom_config, "trusted_proxies"),
         .uploads_root = path_or_default(custom_config, "uploads_root", "uploads"),
         .web_root = path_or_default(custom_config, "web_root", "web"),
         .session_ttl_seconds = positive_int_or_default(
@@ -246,9 +252,10 @@ AppConfig app_config_from_json(const Json::Value& custom_config)
     };
 }
 
-AppConfig app_config_from_drogon()
+const AppConfig& app_config_from_drogon()
 {
-    return app_config_from_json(drogon::app().getCustomConfig());
+    static const AppConfig app_config = app_config_from_json(drogon::app().getCustomConfig());
+    return app_config;
 }
 
 }

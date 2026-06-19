@@ -82,11 +82,13 @@ add_library(blogalone_core STATIC
     src/services/auth_service.cc
     src/services/forum_service.cc
     src/services/health_service.cc
+    src/services/upload_file_mutex.cc
     src/services/upload_cleanup_service.cc
     src/services/upload_service.cc
     src/security/rate_limiter.cc
     src/util/crypto.cc
     src/util/image.cc
+    src/util/ip_address.cc
     src/util/markdown.cc
     src/util/password.cc
     src/util/time.cc

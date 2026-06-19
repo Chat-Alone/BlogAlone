@@ -488,6 +488,34 @@ TEST_F(ForumServiceTest, RollsBackThreadWhenUploadAttachFails)
     EXPECT_TRUE(rows.at(0)["attached_at"].isNull());
 }
 
+TEST_F(ForumServiceTest, RollsBackThreadWhenUploadReferenceDisappears)
+{
+    const auto author_id = insert_user("missing_upload_author");
+    static_cast<void>(insert_forum("general"));
+    const auto upload_path = insert_upload_ref(author_id, "2026/06/aa/missing.png");
+    client_->execSqlSync(
+        "CREATE TRIGGER remove_upload_ref BEFORE INSERT ON threads "
+        "BEGIN "
+        "DELETE FROM upload_refs WHERE owner_id = NEW.author_id; "
+        "END;"
+    );
+
+    const auto result = service_.create_thread(
+        author_id,
+        blogalone::services::CreateThreadRequest{
+            .forum_slug = "general",
+            .title = "Thread with disappearing image",
+            .body_md = "![image](/uploads/" + upload_path + ")"
+        },
+        1'700'000'000
+    );
+
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error(), blogalone::services::ForumError::not_found);
+    EXPECT_EQ(client_->execSqlSync("SELECT id FROM threads").size(), 0);
+    EXPECT_EQ(client_->execSqlSync("SELECT id FROM upload_refs").size(), 1);
+}
+
 TEST_F(ForumServiceTest, CreatesSubPostsWithoutIncrementingReplyCount)
 {
     const auto author_id = insert_user("sub_author");

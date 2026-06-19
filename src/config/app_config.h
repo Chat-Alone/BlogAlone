@@ -58,6 +58,6 @@ struct AppConfig {
 };
 
 [[nodiscard]] AppConfig app_config_from_json(const Json::Value& custom_config);
-[[nodiscard]] AppConfig app_config_from_drogon();
+[[nodiscard]] const AppConfig& app_config_from_drogon();
 
 }

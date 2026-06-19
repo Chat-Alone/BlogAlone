@@ -140,7 +140,7 @@ void handle_register(
     const HttpCallback& callback
 )
 {
-    const auto app_config = config::app_config_from_drogon();
+    const auto& app_config = config::app_config_from_drogon();
     const auto client_ip = http::client_ip_from(request);
     if(!security::request_rate_limiter().consume(
         security::RateLimitScope::registration,
@@ -199,7 +199,7 @@ void handle_login(
     const HttpCallback& callback
 )
 {
-    const auto app_config = config::app_config_from_drogon();
+    const auto& app_config = config::app_config_from_drogon();
     const auto client_ip = http::client_ip_from(request);
     auto& limiter = security::request_rate_limiter();
     if(!limiter.is_allowed(

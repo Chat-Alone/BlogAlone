@@ -224,7 +224,7 @@ template <typename T, typename Converter>
     std::int64_t user_id
 )
 {
-    const auto app_config = config::app_config_from_drogon();
+    const auto& app_config = config::app_config_from_drogon();
     return security::request_rate_limiter().consume(
         security::RateLimitScope::post,
         http::client_ip_from(request),
