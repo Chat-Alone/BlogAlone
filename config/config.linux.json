@@ -36,6 +36,13 @@
         "blogalone::plugins::DatabaseMigrationPlugin"
       ],
       "config": {}
+    },
+    {
+      "name": "blogalone::plugins::SessionCleanupPlugin",
+      "dependencies": [
+        "blogalone::plugins::DatabaseMigrationPlugin"
+      ],
+      "config": {}
     }
   ],
   "custom_config": {
@@ -58,6 +65,7 @@
     "rate_limit_post_window_seconds": 60,
     "orphan_upload_retention_seconds": 86400,
     "upload_cleanup_interval_seconds": 3600,
+    "session_cleanup_interval_seconds": 3600,
     "password_opslimit": 3,
     "password_memlimit": 268435456
   }

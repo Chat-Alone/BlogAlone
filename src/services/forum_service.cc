@@ -2,6 +2,8 @@
 
 #include "db/transaction.h"
 #include "util/markdown.h"
+#include "util/pagination.h"
+#include "util/text.h"
 
 #include <drogon/orm/Exception.h>
 
@@ -16,38 +18,12 @@
 namespace blogalone::services {
 namespace {
 
-constexpr std::int64_t kMinPage = 1;
-constexpr std::int64_t kMaxPage = 1'000'000;
-constexpr std::int64_t kMaxPageSize = 50;
 constexpr std::size_t kMinForumSlugLength = 2;
 constexpr std::size_t kMaxForumSlugLength = 32;
 constexpr std::size_t kMaxThreadTitleLength = 80;
 constexpr std::size_t kMaxBodyLength = 20'000;
 constexpr std::size_t kMaxSubPostBodyLength = 2'000;
 constexpr int kPostFloorRetryCount = 3;
-
-[[nodiscard]] std::string trim(std::string_view value)
-{
-    const auto first = value.find_first_not_of(" \t\r\n");
-    if(first == std::string_view::npos) {
-        return {};
-    }
-    const auto last = value.find_last_not_of(" \t\r\n");
-    return std::string{value.substr(first, last - first + 1)};
-}
-
-[[nodiscard]] bool valid_pagination(PaginationRequest pagination)
-{
-    return pagination.page >= kMinPage
-        && pagination.page <= kMaxPage
-        && pagination.page_size >= kMinPage
-        && pagination.page_size <= kMaxPageSize;
-}
-
-[[nodiscard]] std::int64_t offset_for(PaginationRequest pagination)
-{
-    return (pagination.page - 1) * pagination.page_size;
-}
 
 [[nodiscard]] bool is_valid_forum_slug(std::string_view slug)
 {
@@ -163,10 +139,11 @@ constexpr int kPostFloorRetryCount = 3;
 [[nodiscard]] Page<models::PostWithReplies> posts_page(
     const repositories::ForumRepository& repository,
     std::int64_t thread_id,
-    PaginationRequest pagination
+    PaginationRequest pagination,
+    std::int64_t offset
 )
 {
-    auto posts = repository.list_posts(thread_id, pagination.page_size, offset_for(pagination));
+    auto posts = repository.list_posts(thread_id, pagination.page_size, offset);
     std::vector<models::PostWithReplies> items;
     items.reserve(posts.size());
     for(auto& post : posts) {
@@ -268,25 +245,33 @@ ForumResult<Page<models::Thread>> ForumService::list_threads(
     PaginationRequest pagination
 ) const
 {
-    if(!valid_pagination(pagination) || !is_valid_forum_slug(forum_slug)) {
+    const auto offset = util::pagination_offset(pagination.page, pagination.page_size);
+    if(!offset.has_value() || !is_valid_forum_slug(forum_slug)) {
         return ForumError::invalid_input;
     }
 
-    const auto forum = forum_repository_.find_forum_by_slug(forum_slug);
+    db::Transaction transaction{
+        forum_repository_.client(),
+        drogon::orm::TransactionType::Deferred
+    };
+    const repositories::ForumRepository repository{transaction.client()};
+    const auto forum = repository.find_forum_by_slug(forum_slug);
     if(!forum.has_value()) {
         return ForumError::not_found;
     }
 
-    return Page<models::Thread>{
-        .items = forum_repository_.list_threads(
+    auto page = Page<models::Thread>{
+        .items = repository.list_threads(
             forum->id,
             pagination.page_size,
-            offset_for(pagination)
+            *offset
         ),
         .page = pagination.page,
         .page_size = pagination.page_size,
-        .total = forum_repository_.count_threads(forum->id)
+        .total = repository.count_threads(forum->id)
     };
+    transaction.commit();
+    return page;
 }
 
 ForumResult<ThreadDetail> ForumService::get_thread(
@@ -294,19 +279,27 @@ ForumResult<ThreadDetail> ForumService::get_thread(
     PaginationRequest pagination
 ) const
 {
-    if(thread_id <= 0 || !valid_pagination(pagination)) {
+    const auto offset = util::pagination_offset(pagination.page, pagination.page_size);
+    if(thread_id <= 0 || !offset.has_value()) {
         return ForumError::invalid_input;
     }
 
-    auto thread = forum_repository_.find_thread(thread_id);
+    db::Transaction transaction{
+        forum_repository_.client(),
+        drogon::orm::TransactionType::Deferred
+    };
+    const repositories::ForumRepository repository{transaction.client()};
+    auto thread = repository.find_thread(thread_id);
     if(!thread.has_value()) {
         return ForumError::not_found;
     }
 
-    return ThreadDetail{
+    auto detail = ThreadDetail{
         .thread = std::move(*thread),
-        .posts = posts_page(forum_repository_, thread_id, pagination)
+        .posts = posts_page(repository, thread_id, pagination, *offset)
     };
+    transaction.commit();
+    return detail;
 }
 
 ForumResult<models::Thread> ForumService::create_thread(
@@ -315,9 +308,9 @@ ForumResult<models::Thread> ForumService::create_thread(
     std::int64_t now
 ) const
 {
-    const auto forum_slug = trim(request.forum_slug);
-    const auto title = trim(request.title);
-    const auto body_md = trim(request.body_md);
+    const auto forum_slug = util::trim_ascii_whitespace(request.forum_slug);
+    const auto title = util::trim_ascii_whitespace(request.title);
+    const auto body_md = util::trim_ascii_whitespace(request.body_md);
     if(author_id <= 0 || !is_valid_forum_slug(forum_slug) || !is_valid_title(title)
         || !is_valid_body(body_md, kMaxBodyLength)) {
         return ForumError::invalid_input;
@@ -365,14 +358,19 @@ ForumResult<models::Thread> ForumService::update_thread(
     std::int64_t now
 ) const
 {
-    const auto title = trim(request.title);
-    const auto body_md = trim(request.body_md);
+    const auto title = util::trim_ascii_whitespace(request.title);
+    const auto body_md = util::trim_ascii_whitespace(request.body_md);
     if(user_id <= 0 || thread_id <= 0 || !is_valid_title(title)
         || !is_valid_body(body_md, kMaxBodyLength)) {
         return ForumError::invalid_input;
     }
 
-    const auto thread = forum_repository_.find_thread(thread_id);
+    db::Transaction transaction{
+        forum_repository_.client(),
+        drogon::orm::TransactionType::Deferred
+    };
+    const repositories::ForumRepository repository{transaction.client()};
+    const auto thread = repository.find_thread(thread_id);
     if(!thread.has_value()) {
         return ForumError::not_found;
     }
@@ -382,11 +380,6 @@ ForumResult<models::Thread> ForumService::update_thread(
 
     std::vector<std::string> ref_paths;
     const auto body_html = render_and_collect_refs(user_id, body_md, ref_paths);
-    db::Transaction transaction{
-        forum_repository_.client(),
-        drogon::orm::TransactionType::Deferred
-    };
-    const repositories::ForumRepository repository{transaction.client()};
     const repositories::UploadRepository upload_repository{transaction.client()};
     if(!repository.update_thread_content(thread_id, title, body_md, body_html, now)) {
         return ForumError::not_found;
@@ -412,7 +405,12 @@ ForumResult<DeleteResult> ForumService::delete_thread(
         return ForumError::invalid_input;
     }
 
-    const auto thread = forum_repository_.find_thread(thread_id);
+    db::Transaction transaction{
+        forum_repository_.client(),
+        drogon::orm::TransactionType::Deferred
+    };
+    const repositories::ForumRepository repository{transaction.client()};
+    const auto thread = repository.find_thread(thread_id);
     if(!thread.has_value()) {
         return ForumError::not_found;
     }
@@ -420,9 +418,10 @@ ForumResult<DeleteResult> ForumService::delete_thread(
         return ForumError::forbidden;
     }
 
-    if(!forum_repository_.soft_delete_thread(thread_id, now)) {
+    if(!repository.soft_delete_thread(thread_id, now)) {
         return ForumError::not_found;
     }
+    transaction.commit();
     return DeleteResult{};
 }
 
@@ -432,7 +431,7 @@ ForumResult<models::PostWithReplies> ForumService::create_post(
     std::int64_t now
 ) const
 {
-    const auto body_md = trim(request.body_md);
+    const auto body_md = util::trim_ascii_whitespace(request.body_md);
     if(author_id <= 0 || request.thread_id <= 0 || !is_valid_body(body_md, kMaxBodyLength)) {
         return ForumError::invalid_input;
     }
@@ -499,7 +498,7 @@ ForumResult<models::PostWithReplies> ForumService::update_post(
     std::int64_t now
 ) const
 {
-    const auto body_md = trim(request.body_md);
+    const auto body_md = util::trim_ascii_whitespace(request.body_md);
     if(user_id <= 0 || post_id <= 0 || !is_valid_body(body_md, kMaxBodyLength)) {
         return ForumError::invalid_input;
     }
@@ -572,7 +571,7 @@ ForumResult<models::SubPost> ForumService::create_sub_post(
     std::int64_t now
 ) const
 {
-    const auto body_md = trim(request.body_md);
+    const auto body_md = util::trim_ascii_whitespace(request.body_md);
     if(author_id <= 0 || request.post_id <= 0 || !is_valid_body(body_md, kMaxSubPostBodyLength)) {
         return ForumError::invalid_input;
     }
@@ -631,7 +630,7 @@ ForumResult<models::SubPost> ForumService::update_sub_post(
     std::int64_t now
 ) const
 {
-    const auto body_md = trim(request.body_md);
+    const auto body_md = util::trim_ascii_whitespace(request.body_md);
     if(user_id <= 0 || sub_post_id <= 0 || !is_valid_body(body_md, kMaxSubPostBodyLength)) {
         return ForumError::invalid_input;
     }

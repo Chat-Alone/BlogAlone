@@ -3,7 +3,9 @@
 #include "db/transaction.h"
 #include "repositories/forum_repository.h"
 #include "repositories/session_repository.h"
+#include "util/pagination.h"
 #include "util/password.h"
+#include "util/text.h"
 
 #include <algorithm>
 #include <cctype>
@@ -12,24 +14,12 @@
 namespace blogalone::services {
 namespace {
 
-constexpr std::int64_t kMaxPage = 1'000'000;
-constexpr std::int64_t kMaxPageSize = 50;
 constexpr std::int64_t kAdminReauthLifetimeSeconds = 600;
 constexpr std::size_t kMinForumSlugLength = 2;
 constexpr std::size_t kMaxForumSlugLength = 32;
 constexpr std::size_t kMaxForumNameBytes = 240;
 constexpr std::size_t kMaxForumDescriptionBytes = 4'000;
 constexpr std::size_t kSessionHashLength = 64;
-
-[[nodiscard]] std::string trim(std::string_view value)
-{
-    const auto first = value.find_first_not_of(" \t\r\n");
-    if(first == std::string_view::npos) {
-        return {};
-    }
-    const auto last = value.find_last_not_of(" \t\r\n");
-    return std::string{value.substr(first, last - first + 1)};
-}
 
 [[nodiscard]] bool valid_slug(std::string_view slug)
 {
@@ -50,19 +40,6 @@ constexpr std::size_t kSessionHashLength = 64;
     return !name.empty()
         && name.size() <= kMaxForumNameBytes
         && description.size() <= kMaxForumDescriptionBytes;
-}
-
-[[nodiscard]] bool valid_pagination(AdminPaginationRequest pagination)
-{
-    return pagination.page >= 1
-        && pagination.page <= kMaxPage
-        && pagination.page_size >= 1
-        && pagination.page_size <= kMaxPageSize;
-}
-
-[[nodiscard]] std::int64_t pagination_offset(AdminPaginationRequest pagination)
-{
-    return (pagination.page - 1) * pagination.page_size;
 }
 
 [[nodiscard]] bool is_admin(
@@ -132,9 +109,9 @@ AdminResult<models::Forum> AdminService::create_forum(
     std::int64_t now
 ) const
 {
-    const auto slug = trim(request.slug);
-    const auto name = trim(request.name);
-    const auto description = trim(request.description);
+    const auto slug = util::trim_ascii_whitespace(request.slug);
+    const auto name = util::trim_ascii_whitespace(request.name);
+    const auto description = util::trim_ascii_whitespace(request.description);
     if(!valid_slug(slug) || !valid_forum_text(name, description)) {
         return AdminError::invalid_input;
     }
@@ -196,10 +173,14 @@ AdminResult<models::Forum> AdminService::update_forum(
         return AdminError::not_found;
     }
 
-    const auto slug = request.slug.has_value() ? trim(*request.slug) : current->slug;
-    const auto name = request.name.has_value() ? trim(*request.name) : current->name;
+    const auto slug = request.slug.has_value()
+        ? util::trim_ascii_whitespace(*request.slug)
+        : current->slug;
+    const auto name = request.name.has_value()
+        ? util::trim_ascii_whitespace(*request.name)
+        : current->name;
     const auto description = request.description.has_value()
-        ? trim(*request.description)
+        ? util::trim_ascii_whitespace(*request.description)
         : current->description;
     const auto sort_order = request.sort_order.value_or(current->sort_order);
     if(!valid_slug(slug) || !valid_forum_text(name, description)) {
@@ -257,22 +238,32 @@ AdminResult<AdminPage<models::User>> AdminService::list_users(
     AdminPaginationRequest pagination
 ) const
 {
-    if(!valid_pagination(pagination)) {
+    const auto offset = util::pagination_offset(pagination.page, pagination.page_size);
+    if(!offset.has_value()) {
         return AdminError::invalid_input;
     }
-    if(!is_admin(user_repository_, admin_id)) {
+
+    db::Transaction transaction{
+        admin_repository_.client(),
+        drogon::orm::TransactionType::Deferred
+    };
+    const auto db = transaction.client();
+    const repositories::AdminRepository repository{db};
+    if(!is_admin(repositories::UserRepository{db}, admin_id)) {
         return AdminError::forbidden;
     }
-    return AdminPage<models::User>{
-        .items = admin_repository_.list_users(
+    auto page = AdminPage<models::User>{
+        .items = repository.list_users(
             role,
             pagination.page_size,
-            pagination_offset(pagination)
+            *offset
         ),
         .page = pagination.page,
         .page_size = pagination.page_size,
-        .total = admin_repository_.count_users(role)
+        .total = repository.count_users(role)
     };
+    transaction.commit();
+    return page;
 }
 
 AdminResult<AdminPage<models::AuditLogEntry>> AdminService::list_audit_logs(
@@ -280,21 +271,31 @@ AdminResult<AdminPage<models::AuditLogEntry>> AdminService::list_audit_logs(
     AdminPaginationRequest pagination
 ) const
 {
-    if(!valid_pagination(pagination)) {
+    const auto offset = util::pagination_offset(pagination.page, pagination.page_size);
+    if(!offset.has_value()) {
         return AdminError::invalid_input;
     }
-    if(!is_admin(user_repository_, admin_id)) {
+
+    db::Transaction transaction{
+        admin_repository_.client(),
+        drogon::orm::TransactionType::Deferred
+    };
+    const auto db = transaction.client();
+    const repositories::AdminRepository repository{db};
+    if(!is_admin(repositories::UserRepository{db}, admin_id)) {
         return AdminError::forbidden;
     }
-    return AdminPage<models::AuditLogEntry>{
-        .items = admin_repository_.list_audit_logs(
+    auto page = AdminPage<models::AuditLogEntry>{
+        .items = repository.list_audit_logs(
             pagination.page_size,
-            pagination_offset(pagination)
+            *offset
         ),
         .page = pagination.page,
         .page_size = pagination.page_size,
-        .total = admin_repository_.count_audit_logs()
+        .total = repository.count_audit_logs()
     };
+    transaction.commit();
+    return page;
 }
 
 AdminResult<ReauthResult> AdminService::reauth(

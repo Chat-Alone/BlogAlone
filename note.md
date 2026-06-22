@@ -74,7 +74,7 @@ PRAGMA synchronous = NORMAL;
 PRAGMA busy_timeout = 5000;
 ```
 
-SQLite保持单写者模型。当前Drogon SQLite客户端只配置1个连接。Drogon1.9.12没有公开的SQLite连接初始化钩子，`foreign_keys`、`synchronous`和`busy_timeout`都按连接生效；在找到可靠的连接初始化机制前，不能提高`number_of_connections`。读并发优化放到阶段5后续改造，优先改用协程接口或自管SQLite连接初始化。所有写操作由服务层显式开启事务，事务内只做数据库读写，不执行Markdown渲染、图片解码、文件复制等耗时操作。
+SQLite保持单写者模型。当前Drogon SQLite客户端只配置1个连接。Drogon1.9.12没有公开的SQLite连接初始化钩子，`foreign_keys`、`synchronous`和`busy_timeout`都按连接生效；在找到可靠的连接初始化机制前，不能提高`number_of_connections`。读并发优化放到阶段5后续改造，优先改用协程接口或自管SQLite连接初始化。包含多次读写并要求一致快照的操作由服务层显式开启事务，单条原子写可直接执行。事务内只做数据库读写，不执行Markdown渲染、图片解码、文件复制等耗时操作。
 
 所有时间字段使用UTC Unix秒。服务端负责生成时间，客户端传来的时间只用于展示偏好，不能参与权限和排序判断。
 
@@ -348,6 +348,8 @@ RequestIdFilter -> RealIpFilter -> SessionFilter -> CsrfFilter -> RoleFilter
 ## 安全策略
 
 会话token由32字节安全随机数生成，Cookie中保存明文token，数据库只保存`SHA-256(token)`。CSRF令牌也使用32字节安全随机数生成，登录响应体返回明文，数据库保存哈希值，并设置可被前端读取的`ba_csrf`Cookie，页面刷新后前端仍能恢复请求头。退出登录时设置`sessions.revoked_at`，服务端立即拒绝该会话。
+
+会话清理插件在启动时执行一次，并按`session_cleanup_interval_seconds`定时删除`expires_at`不晚于当前时间的记录。鉴权仍以会话过期时间为准，清理任务只负责回收数据库空间。
 
 Cookie固定使用这些属性：
 

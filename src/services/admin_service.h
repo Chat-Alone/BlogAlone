@@ -5,6 +5,7 @@
 #include "models/user.h"
 #include "repositories/admin_repository.h"
 #include "repositories/user_repository.h"
+#include "util/pagination.h"
 
 #include <cstdint>
 #include <optional>
@@ -18,7 +19,7 @@ namespace blogalone::services {
 
 struct AdminPaginationRequest {
     std::int64_t page{1};
-    std::int64_t page_size{20};
+    std::int64_t page_size{util::kDefaultPageSize};
 };
 
 template <typename T>

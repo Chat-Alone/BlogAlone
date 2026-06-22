@@ -2,6 +2,7 @@
 
 #include "db/transaction.h"
 #include "util/crypto.h"
+#include "util/text.h"
 
 #include <drogon/orm/Exception.h>
 
@@ -26,16 +27,6 @@ constexpr std::string_view kAvatarUrlPrefix = "/uploads/";
 constexpr std::string_view kFakeLoginPassword = "blogalone fixed fake login password";
 
 using PasswordHashKey = std::pair<unsigned long long, std::size_t>;
-
-[[nodiscard]] std::string trim(std::string_view value)
-{
-    const auto first = value.find_first_not_of(" \t\r\n");
-    if(first == std::string_view::npos) {
-        return {};
-    }
-    const auto last = value.find_last_not_of(" \t\r\n");
-    return std::string{value.substr(first, last - first + 1)};
-}
 
 [[nodiscard]] std::string to_lower_ascii(std::string_view value)
 {
@@ -246,7 +237,7 @@ AuthResult<AuthIssued> AuthService::register_user(
     std::int64_t now
 ) const
 {
-    const auto username = trim(request.username);
+    const auto username = util::trim_ascii_whitespace(request.username);
     const auto password = request.password;
     if(!is_valid_username(username) || !is_valid_password(password)) {
         return AuthError::invalid_input;
@@ -254,7 +245,7 @@ AuthResult<AuthIssued> AuthService::register_user(
 
     std::optional<std::string> normalized_email;
     if(request.email.has_value()) {
-        const auto email = to_lower_ascii(trim(*request.email));
+        const auto email = to_lower_ascii(util::trim_ascii_whitespace(*request.email));
         if(!is_valid_email(email)) {
             return AuthError::invalid_input;
         }
@@ -322,7 +313,7 @@ AuthResult<AuthIssued> AuthService::login(
     std::int64_t now
 ) const
 {
-    const auto username = trim(request.username);
+    const auto username = util::trim_ascii_whitespace(request.username);
     if(username.empty() || request.password.empty()) {
         return AuthError::invalid_credentials;
     }
@@ -387,20 +378,16 @@ AuthResult<models::User> AuthService::update_profile(
 {
     std::optional<std::string> email;
     if(request.email.has_value()) {
-        const auto trimmed = to_lower_ascii(trim(*request.email));
+        const auto trimmed = to_lower_ascii(util::trim_ascii_whitespace(*request.email));
         if(!is_valid_email(trimmed)) {
             return AuthError::invalid_input;
-        }
-        const auto existing = user_repository_.find_by_email(trimmed);
-        if(existing.has_value() && existing->id != user_id) {
-            return AuthError::email_taken;
         }
         email = trimmed;
     }
 
     std::optional<std::string> avatar_url;
     if(request.avatar_url.has_value()) {
-        const auto trimmed = trim(*request.avatar_url);
+        const auto trimmed = util::trim_ascii_whitespace(*request.avatar_url);
         if(!is_valid_avatar_url(trimmed)) {
             return AuthError::invalid_input;
         }
@@ -416,18 +403,30 @@ AuthResult<models::User> AuthService::update_profile(
     }
 
     try {
-        user_repository_.update_profile(user_id, email, avatar_url, now);
+        db::Transaction transaction{
+            user_repository_.client(),
+            drogon::orm::TransactionType::Immediate
+        };
+        const repositories::UserRepository user_repository{transaction.client()};
+        if(email.has_value()) {
+            const auto existing = user_repository.find_by_email(*email);
+            if(existing.has_value() && existing->id != user_id) {
+                return AuthError::email_taken;
+            }
+        }
+        user_repository.update_profile(user_id, email, avatar_url, now);
+        const auto updated = user_repository.find_by_id(user_id);
+        if(!updated.has_value()) {
+            return AuthError::not_found;
+        }
+        transaction.commit();
+        return *updated;
     } catch(const drogon::orm::DrogonDbException& error) {
         if(email.has_value() && is_unique_violation(error)) {
             return AuthError::email_taken;
         }
         throw;
     }
-    const auto updated = user_repository_.find_by_id(user_id);
-    if(!updated.has_value()) {
-        return AuthError::not_found;
-    }
-    return *updated;
 }
 
 }

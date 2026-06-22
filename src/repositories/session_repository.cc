@@ -90,6 +90,15 @@ void SessionRepository::revoke_all_for_user(std::int64_t user_id, std::int64_t r
     );
 }
 
+std::int64_t SessionRepository::delete_expired(std::int64_t now) const
+{
+    const auto result = client()->execSqlSync(
+        "DELETE FROM sessions WHERE expires_at <= ?",
+        now
+    );
+    return static_cast<std::int64_t>(result.affectedRows());
+}
+
 bool SessionRepository::confirm_admin(
     std::string_view token_hash,
     std::int64_t user_id,

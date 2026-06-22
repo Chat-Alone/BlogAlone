@@ -6,6 +6,8 @@
 #include "http/static_files.h"
 #include "security/rate_limiter.h"
 #include "util/crypto.h"
+#include "util/pagination.h"
+#include "util/text.h"
 #include "util/time.h"
 
 #include <drogon/drogon.h>
@@ -18,6 +20,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <limits>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -123,6 +126,7 @@ TEST(InfrastructureTest, ParsesApplicationCustomConfig)
     custom_config["rate_limit_post_window_seconds"] = 45;
     custom_config["orphan_upload_retention_seconds"] = 7200;
     custom_config["upload_cleanup_interval_seconds"] = 300;
+    custom_config["session_cleanup_interval_seconds"] = 600;
     custom_config["password_opslimit"] = 2;
     custom_config["password_memlimit"] = 67'108'864;
 
@@ -147,8 +151,26 @@ TEST(InfrastructureTest, ParsesApplicationCustomConfig)
     EXPECT_EQ(parsed.rate_limits.post.window, std::chrono::seconds{45});
     EXPECT_EQ(parsed.upload_cleanup.retention_seconds, 7200);
     EXPECT_EQ(parsed.upload_cleanup.interval_seconds, 300);
+    EXPECT_EQ(parsed.session_cleanup.interval_seconds, 600);
     EXPECT_EQ(parsed.password_hash_options.opslimit, 2);
     EXPECT_EQ(parsed.password_hash_options.memlimit, 67'108'864);
+}
+
+TEST(InfrastructureTest, TrimsAsciiWhitespace)
+{
+    EXPECT_EQ(blogalone::util::trim_ascii_whitespace(" \t value\r\n"), "value");
+    EXPECT_TRUE(blogalone::util::trim_ascii_whitespace(" \t\r\n").empty());
+}
+
+TEST(InfrastructureTest, ComputesCheckedPaginationOffsets)
+{
+    EXPECT_EQ(blogalone::util::pagination_offset(1, 20), 0);
+    EXPECT_EQ(blogalone::util::pagination_offset(1'000'000, 50), 49'999'950);
+    EXPECT_FALSE(blogalone::util::pagination_offset(0, 20).has_value());
+    EXPECT_FALSE(blogalone::util::pagination_offset(
+        (std::numeric_limits<std::int64_t>::max)(),
+        50
+    ).has_value());
 }
 
 TEST(InfrastructureTest, RejectsInvalidCustomConfig)

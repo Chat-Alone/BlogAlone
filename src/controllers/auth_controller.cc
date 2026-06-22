@@ -55,7 +55,7 @@ using HttpCallback = std::function<void(const drogon::HttpResponsePtr&)>;
     return http::ErrorCode::internal_error;
 }
 
-[[nodiscard]] Json::Value user_to_json(const models::User& user)
+[[nodiscard]] Json::Value current_user_to_json(const models::User& user)
 {
     Json::Value json;
     json["id"] = static_cast<Json::Int64>(user.id);
@@ -126,7 +126,7 @@ void clear_session_cookies(const drogon::HttpResponsePtr& response)
 )
 {
     Json::Value body;
-    body["user"] = user_to_json(issued.user);
+    body["user"] = current_user_to_json(issued.user);
     body["csrf_token"] = issued.csrf_token;
     body["expires_at"] = static_cast<Json::Int64>(issued.expires_at);
 
@@ -298,7 +298,7 @@ void handle_get_me(
     }
 
     Json::Value body;
-    body["user"] = user_to_json(*user);
+    body["user"] = current_user_to_json(*user);
     callback(drogon::HttpResponse::newHttpJsonResponse(body));
 }
 
@@ -348,7 +348,7 @@ void handle_patch_me(
     }
 
     Json::Value response_body;
-    response_body["user"] = user_to_json(*result);
+    response_body["user"] = current_user_to_json(*result);
     callback(drogon::HttpResponse::newHttpJsonResponse(response_body));
 }
 

@@ -46,6 +46,10 @@ struct UploadCleanupConfig {
     int interval_seconds{3'600};
 };
 
+struct SessionCleanupConfig {
+    int interval_seconds{3'600};
+};
+
 struct AppConfig {
     std::vector<std::string> trusted_proxies;
     std::filesystem::path uploads_root{"uploads"};
@@ -54,6 +58,7 @@ struct AppConfig {
     UploadConfig upload;
     RateLimitConfig rate_limits;
     UploadCleanupConfig upload_cleanup;
+    SessionCleanupConfig session_cleanup;
     util::PasswordHashOptions password_hash_options{util::default_password_hash_options()};
 };
 

@@ -4,6 +4,7 @@
 #include "repositories/forum_repository.h"
 #include "repositories/upload_repository.h"
 #include "repositories/user_repository.h"
+#include "util/pagination.h"
 
 #include <cstdint>
 #include <optional>
@@ -14,7 +15,7 @@
 
 namespace blogalone::services {
 
-inline constexpr std::int64_t kDefaultPageSize = 20;
+inline constexpr std::int64_t kDefaultPageSize = util::kDefaultPageSize;
 
 struct PaginationRequest {
     std::int64_t page{1};

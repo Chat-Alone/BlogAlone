@@ -83,7 +83,7 @@ using HttpCallback = std::function<void(const drogon::HttpResponsePtr&)>;
     return parsed;
 }
 
-[[nodiscard]] std::int64_t query_int64(
+[[nodiscard]] std::optional<std::int64_t> query_int64(
     const drogon::HttpRequestPtr& request,
     std::string_view key,
     std::int64_t fallback
@@ -93,16 +93,21 @@ using HttpCallback = std::function<void(const drogon::HttpResponsePtr&)>;
     if(value.empty()) {
         return fallback;
     }
-    return parse_int64(value).value_or(0);
+    return parse_int64(value);
 }
 
-[[nodiscard]] services::PaginationRequest pagination_from(
+[[nodiscard]] std::optional<services::PaginationRequest> pagination_from(
     const drogon::HttpRequestPtr& request
 )
 {
+    const auto page = query_int64(request, "page", 1);
+    const auto page_size = query_int64(request, "page_size", services::kDefaultPageSize);
+    if(!page.has_value() || !page_size.has_value()) {
+        return std::nullopt;
+    }
     return services::PaginationRequest{
-        .page = query_int64(request, "page", 1),
-        .page_size = query_int64(request, "page_size", services::kDefaultPageSize)
+        .page = *page,
+        .page_size = *page_size
     };
 }
 
@@ -249,7 +254,12 @@ void handle_list_threads(
     const std::string& slug
 )
 {
-    const auto result = services::ForumService{}.list_threads(slug, pagination_from(request));
+    const auto pagination = pagination_from(request);
+    if(!pagination.has_value()) {
+        callback(error_response(request, http::ErrorCode::invalid_argument, "invalid pagination"));
+        return;
+    }
+    const auto result = services::ForumService{}.list_threads(slug, *pagination);
     if(!result.has_value()) {
         callback(error_response(request, result.error()));
         return;
@@ -265,7 +275,12 @@ void handle_get_thread(
     std::int64_t thread_id
 )
 {
-    const auto result = services::ForumService{}.get_thread(thread_id, pagination_from(request));
+    const auto pagination = pagination_from(request);
+    if(!pagination.has_value()) {
+        callback(error_response(request, http::ErrorCode::invalid_argument, "invalid pagination"));
+        return;
+    }
+    const auto result = services::ForumService{}.get_thread(thread_id, *pagination);
     if(!result.has_value()) {
         callback(error_response(request, result.error()));
         return;

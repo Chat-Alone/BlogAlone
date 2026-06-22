@@ -1,5 +1,6 @@
 #include "app/routes.h"
 #include "plugins/database_migration_plugin.h"
+#include "plugins/session_cleanup_plugin.h"
 #include "plugins/upload_cleanup_plugin.h"
 
 #include <drogon/drogon.h>
@@ -27,10 +28,6 @@ namespace {
 
 int main(int argc, char* argv[])
 {
-    blogalone::plugins::ensure_database_migration_plugin_registered();
-    blogalone::plugins::ensure_upload_cleanup_plugin_registered();
-    blogalone::register_routes();
-
     const auto args = std::span<char* const>{argv, static_cast<std::size_t>(argc)};
     const auto config_path = config_path_from(args);
     if(!config_path) {
@@ -38,6 +35,10 @@ int main(int argc, char* argv[])
         return 1;
     }
 
+    blogalone::plugins::ensure_database_migration_plugin_registered();
+    blogalone::plugins::ensure_session_cleanup_plugin_registered();
+    blogalone::plugins::ensure_upload_cleanup_plugin_registered();
     drogon::app().loadConfigFile(*config_path);
+    blogalone::register_routes();
     drogon::app().run();
 }

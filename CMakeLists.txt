@@ -72,6 +72,7 @@ add_library(blogalone_core STATIC
     src/http/static_files.cc
     src/models/user.cc
     src/plugins/database_migration_plugin.cc
+    src/plugins/session_cleanup_plugin.cc
     src/plugins/upload_cleanup_plugin.cc
     src/repositories/admin_repository.cc
     src/repositories/forum_repository.cc
@@ -92,6 +93,7 @@ add_library(blogalone_core STATIC
     src/util/ip_address.cc
     src/util/markdown.cc
     src/util/password.cc
+    src/util/text.cc
     src/util/time.cc
 )
 target_include_directories(blogalone_core PUBLIC src)
@@ -136,6 +138,7 @@ if(BUILD_TESTING)
     find_package(GTest CONFIG REQUIRED)
 
     add_executable(blogalone_unit_tests
+        tests/unit/test_main.cc
         tests/unit/admin_test.cc
         tests/unit/auth_test.cc
         tests/unit/deps_smoke_test.cc
@@ -150,7 +153,7 @@ if(BUILD_TESTING)
             blogalone_project_options
             blogalone_core
             blogalone_dependency_checks
-            GTest::gtest_main
+            GTest::gtest
     )
     target_compile_definitions(blogalone_unit_tests
         PRIVATE

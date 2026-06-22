@@ -205,6 +205,18 @@ namespace {
     };
 }
 
+[[nodiscard]] SessionCleanupConfig session_cleanup_config_from(const Json::Value& custom_config)
+{
+    const SessionCleanupConfig defaults;
+    return SessionCleanupConfig{
+        .interval_seconds = positive_int_or_default(
+            custom_config,
+            "session_cleanup_interval_seconds",
+            defaults.interval_seconds
+        )
+    };
+}
+
 [[nodiscard]] std::vector<std::string> normalized_ip_array_or_empty(
     const Json::Value& config,
     std::string_view key
@@ -248,6 +260,7 @@ AppConfig app_config_from_json(const Json::Value& custom_config)
         .upload = upload_config_from(custom_config),
         .rate_limits = rate_limit_config_from(custom_config),
         .upload_cleanup = upload_cleanup_config_from(custom_config),
+        .session_cleanup = session_cleanup_config_from(custom_config),
         .password_hash_options = password_hash_options_from(custom_config)
     };
 }

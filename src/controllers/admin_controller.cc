@@ -82,15 +82,24 @@ using HttpCallback = std::function<void(const drogon::HttpResponsePtr&)>;
     return parsed;
 }
 
-[[nodiscard]] services::AdminPaginationRequest pagination_from(
+[[nodiscard]] std::optional<services::AdminPaginationRequest> pagination_from(
     const drogon::HttpRequestPtr& request
 )
 {
     const auto page_value = request->getParameter("page");
     const auto page_size_value = request->getParameter("page_size");
+    const auto page = page_value.empty()
+        ? std::optional<std::int64_t>{1}
+        : parse_int64(page_value);
+    const auto page_size = page_size_value.empty()
+        ? std::optional<std::int64_t>{services::AdminPaginationRequest{}.page_size}
+        : parse_int64(page_size_value);
+    if(!page.has_value() || !page_size.has_value()) {
+        return std::nullopt;
+    }
     return services::AdminPaginationRequest{
-        .page = page_value.empty() ? 1 : parse_int64(page_value).value_or(0),
-        .page_size = page_size_value.empty() ? 20 : parse_int64(page_size_value).value_or(0)
+        .page = *page,
+        .page_size = *page_size
     };
 }
 
@@ -137,7 +146,7 @@ using HttpCallback = std::function<void(const drogon::HttpResponsePtr&)>;
     return json;
 }
 
-[[nodiscard]] Json::Value user_to_json(const models::User& user)
+[[nodiscard]] Json::Value admin_user_to_json(const models::User& user)
 {
     Json::Value json;
     json["id"] = static_cast<Json::Int64>(user.id);
@@ -314,16 +323,21 @@ void handle_list_users(
             return;
         }
     }
+    const auto pagination = pagination_from(request);
+    if(!pagination.has_value()) {
+        callback(invalid_response(request, "invalid pagination"));
+        return;
+    }
     const auto result = services::AdminService{}.list_users(
         session->user_id,
         role,
-        pagination_from(request)
+        *pagination
     );
     if(!result.has_value()) {
         callback(error_response(request, result.error()));
         return;
     }
-    callback(drogon::HttpResponse::newHttpJsonResponse(page_to_json(*result, user_to_json)));
+    callback(drogon::HttpResponse::newHttpJsonResponse(page_to_json(*result, admin_user_to_json)));
 }
 
 void handle_reauth(
@@ -493,7 +507,7 @@ void handle_user_role(
         return;
     }
     Json::Value response_body;
-    response_body["user"] = user_to_json(*result);
+    response_body["user"] = admin_user_to_json(*result);
     callback(drogon::HttpResponse::newHttpJsonResponse(response_body));
 }
 
@@ -533,7 +547,7 @@ void handle_user_ban(
         return;
     }
     Json::Value response_body;
-    response_body["user"] = user_to_json(*result);
+    response_body["user"] = admin_user_to_json(*result);
     callback(drogon::HttpResponse::newHttpJsonResponse(response_body));
 }
 
@@ -571,9 +585,14 @@ void handle_list_audit_logs(
     if(!session.has_value()) {
         return;
     }
+    const auto pagination = pagination_from(request);
+    if(!pagination.has_value()) {
+        callback(invalid_response(request, "invalid pagination"));
+        return;
+    }
     const auto result = services::AdminService{}.list_audit_logs(
         session->user_id,
-        pagination_from(request)
+        *pagination
     );
     if(!result.has_value()) {
         callback(error_response(request, result.error()));

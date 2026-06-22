@@ -3,6 +3,7 @@
 #include "filters/session_filter.h"
 #include "http/session_context.h"
 #include "models/user.h"
+#include "repositories/session_repository.h"
 #include "services/auth_service.h"
 #include "util/crypto.h"
 #include "util/password.h"
@@ -474,6 +475,73 @@ TEST(AuthServiceTest, RejectsMissingAndWrongPasswordWithSameError)
     ASSERT_FALSE(missing_user.has_value());
     EXPECT_EQ(wrong_password.error(), blogalone::services::AuthError::invalid_credentials);
     EXPECT_EQ(missing_user.error(), blogalone::services::AuthError::invalid_credentials);
+}
+
+TEST(AuthServiceTest, UpdatesProfileAndRejectsDuplicateEmail)
+{
+    const auto service = auth_test_service();
+    const auto first = service.register_user(
+        blogalone::services::RegisterRequest{
+            .username = unique_username("profileuser"),
+            .email = unique_username("profilemail") + "@example.test",
+            .password = "valid-password"
+        },
+        "127.0.0.1",
+        "test",
+        40
+    );
+    const auto second = service.register_user(
+        blogalone::services::RegisterRequest{
+            .username = unique_username("profileuser"),
+            .email = std::nullopt,
+            .password = "valid-password"
+        },
+        "127.0.0.1",
+        "test",
+        41
+    );
+    ASSERT_TRUE(first.has_value());
+    ASSERT_TRUE(second.has_value());
+
+    const auto duplicate = service.update_profile(
+        second->user.id,
+        blogalone::services::UpdateProfileRequest{.email = first->user.email},
+        42
+    );
+    ASSERT_FALSE(duplicate.has_value());
+    EXPECT_EQ(duplicate.error(), blogalone::services::AuthError::email_taken);
+
+    const auto updated = service.update_profile(
+        second->user.id,
+        blogalone::services::UpdateProfileRequest{
+            .email = "  Updated@Example.Test ",
+            .avatar_url = " /uploads/avatar.png "
+        },
+        43
+    );
+    ASSERT_TRUE(updated.has_value());
+    EXPECT_EQ(updated->email, std::optional<std::string>{"updated@example.test"});
+    EXPECT_EQ(updated->avatar_url, std::optional<std::string>{"/uploads/avatar.png"});
+    EXPECT_EQ(updated->updated_at, 43);
+}
+
+TEST(SessionRepositoryTest, DeletesOnlyExpiredSessions)
+{
+    const auto client = auth_test_client();
+    const auto user_id = insert_filter_test_user(unique_username("cleanupuser"));
+    const auto expired_token = unique_username("expiredtoken");
+    const auto active_token = unique_username("activetoken");
+    insert_filter_test_session(expired_token, user_id, 100);
+    insert_filter_test_session(active_token, user_id, 101);
+    const blogalone::repositories::SessionRepository repository{client};
+
+    EXPECT_EQ(repository.delete_expired(100), 1);
+    EXPECT_FALSE(repository.find_by_token_hash(
+        blogalone::util::sha256_hex(expired_token)
+    ).has_value());
+    EXPECT_TRUE(repository.find_by_token_hash(
+        blogalone::util::sha256_hex(active_token)
+    ).has_value());
 }
 
 TEST(FilterRegistrationTest, RegistersAuthFiltersForDrogonLookup)
