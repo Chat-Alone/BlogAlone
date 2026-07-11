@@ -11,5 +11,4 @@ vcpkg_installed/
 *.log
 build-errors.txt
 CMakeCache.txt.tmp*
-DEVELOPMENT_ROADMAP.md
-note.md
+.agents/
