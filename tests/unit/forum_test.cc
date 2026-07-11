@@ -516,6 +516,42 @@ TEST_F(ForumServiceTest, RollsBackThreadWhenUploadReferenceDisappears)
     EXPECT_EQ(client_->execSqlSync("SELECT id FROM upload_refs").size(), 1);
 }
 
+TEST_F(ForumServiceTest, UpdatesThreadWithOwnedImageUsingSingleConnection)
+{
+    const auto author_id = insert_user("image_update_author");
+    static_cast<void>(insert_forum("general"));
+    const auto upload_path = insert_upload_ref(author_id, "2026/06/aa/update.png");
+    const auto thread = service_.create_thread(
+        author_id,
+        blogalone::services::CreateThreadRequest{
+            .forum_slug = "general",
+            .title = "Initial image thread",
+            .body_md = "![image](/uploads/" + upload_path + ")"
+        },
+        40
+    );
+    ASSERT_TRUE(thread.has_value());
+
+    const auto updated = service_.update_thread(
+        author_id,
+        thread->id,
+        blogalone::services::UpdateThreadRequest{
+            .title = "Thread with image",
+            .body_md = "![image](/uploads/" + upload_path + ")"
+        },
+        50
+    );
+
+    ASSERT_TRUE(updated.has_value());
+    EXPECT_NE(updated->body_html.find("/uploads/" + upload_path), std::string::npos);
+    const auto rows = client_->execSqlSync(
+        "SELECT attached_at FROM upload_refs WHERE owner_id = ?",
+        author_id
+    );
+    ASSERT_EQ(rows.size(), 1);
+    EXPECT_EQ(rows.at(0)["attached_at"].as<std::int64_t>(), 40);
+}
+
 TEST_F(ForumServiceTest, CreatesSubPostsWithoutIncrementingReplyCount)
 {
     const auto author_id = insert_user("sub_author");

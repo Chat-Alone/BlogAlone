@@ -149,8 +149,8 @@ bool UploadRepository::mark_ref_attached(
 {
     const auto db = client();
     const auto rows = db->execSqlSync(
-        "UPDATE upload_refs SET attached_at = ? "
-        "WHERE attached_at IS NULL AND owner_id = ? AND upload_id IN "
+        "UPDATE upload_refs SET attached_at = COALESCE(attached_at, ?) "
+        "WHERE owner_id = ? AND upload_id IN "
         "(SELECT id FROM uploads WHERE path = ? AND pending_delete_at IS NULL) "
         "RETURNING id",
         attached_at,

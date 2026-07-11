@@ -365,12 +365,7 @@ ForumResult<models::Thread> ForumService::update_thread(
         return ForumError::invalid_input;
     }
 
-    db::Transaction transaction{
-        forum_repository_.client(),
-        drogon::orm::TransactionType::Deferred
-    };
-    const repositories::ForumRepository repository{transaction.client()};
-    const auto thread = repository.find_thread(thread_id);
+    const auto thread = forum_repository_.find_thread(thread_id);
     if(!thread.has_value()) {
         return ForumError::not_found;
     }
@@ -380,6 +375,11 @@ ForumResult<models::Thread> ForumService::update_thread(
 
     std::vector<std::string> ref_paths;
     const auto body_html = render_and_collect_refs(user_id, body_md, ref_paths);
+    db::Transaction transaction{
+        forum_repository_.client(),
+        drogon::orm::TransactionType::Deferred
+    };
+    const repositories::ForumRepository repository{transaction.client()};
     const repositories::UploadRepository upload_repository{transaction.client()};
     if(!repository.update_thread_content(thread_id, title, body_md, body_html, now)) {
         return ForumError::not_found;

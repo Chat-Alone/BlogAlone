@@ -161,5 +161,24 @@ if(BUILD_TESTING)
     )
 
     include(GoogleTest)
-    gtest_discover_tests(blogalone_unit_tests)
+    gtest_discover_tests(blogalone_unit_tests
+        PROPERTIES LABELS unit
+    )
+
+    add_executable(blogalone_integration_tests
+        tests/integration/http_integration_test.cc
+    )
+    target_link_libraries(blogalone_integration_tests
+        PRIVATE
+            blogalone_project_options
+            blogalone_core
+            GTest::gtest
+    )
+    target_compile_definitions(blogalone_integration_tests
+        PRIVATE
+            BLOGALONE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
+    )
+    gtest_discover_tests(blogalone_integration_tests
+        PROPERTIES LABELS integration
+    )
 endif()

@@ -505,7 +505,10 @@ TEST(AuthServiceTest, UpdatesProfileAndRejectsDuplicateEmail)
 
     const auto duplicate = service.update_profile(
         second->user.id,
-        blogalone::services::UpdateProfileRequest{.email = first->user.email},
+        blogalone::services::UpdateProfileRequest{
+            .email = first->user.email,
+            .avatar_url = std::nullopt
+        },
         42
     );
     ASSERT_FALSE(duplicate.has_value());

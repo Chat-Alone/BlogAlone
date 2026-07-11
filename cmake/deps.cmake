@@ -55,6 +55,7 @@ blogalone_select_target(BLOGALONE_CMARK_GFM_TARGET
     cmark-gfm::cmark-gfm
     cmark-gfm
     libcmark-gfm
+    libcmark-gfm_static
 )
 
 blogalone_select_target(BLOGALONE_SPDLOG_TARGET
@@ -64,6 +65,7 @@ blogalone_select_target(BLOGALONE_SPDLOG_TARGET
 
 blogalone_select_target(BLOGALONE_SPNG_TARGET
     spng::spng
+    spng::spng_static
 )
 
 blogalone_select_target(BLOGALONE_TURBOJPEG_TARGET
