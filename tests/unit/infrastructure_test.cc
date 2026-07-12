@@ -211,7 +211,7 @@ TEST(InfrastructureTest, RejectsUploadDimensionAboveDecodedLimit)
 TEST(InfrastructureTest, KeepsDrogonSqliteClientSingleConnection)
 {
     const auto config_dir = std::filesystem::path{BLOGALONE_SOURCE_DIR} / "config";
-    for(const auto filename : {"config.windows.json", "config.linux.json"}) {
+    for(const auto filename : {"config.development.json", "config.production.json"}) {
         const auto config = read_json_file(config_dir / filename);
         const auto& clients = config["db_clients"];
         ASSERT_TRUE(clients.isArray());
@@ -259,13 +259,16 @@ TEST(InfrastructureTest, CommitsAndRollsBackDrogonTransactions)
     EXPECT_EQ(rows.at(0)["total"].as<std::int64_t>(), 1);
 }
 
-TEST(InfrastructureTest, LocksSqlMigrationLineEndings)
+TEST(InfrastructureTest, LocksDeploymentAndMigrationLineEndings)
 {
     const auto attributes = read_text_file(
         std::filesystem::path{BLOGALONE_SOURCE_DIR} / ".gitattributes"
     );
 
     EXPECT_NE(attributes.find("*.sql text eol=lf"), std::string::npos);
+    EXPECT_NE(attributes.find("*.sh text eol=lf"), std::string::npos);
+    EXPECT_NE(attributes.find("*.service text eol=lf"), std::string::npos);
+    EXPECT_NE(attributes.find("*.conf text eol=lf"), std::string::npos);
 }
 
 TEST(InfrastructureTest, MapsApiErrorsToWireCodes)

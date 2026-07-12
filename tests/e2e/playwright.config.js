@@ -20,7 +20,7 @@ module.exports = {
     screenshot: "only-on-failure",
   },
   webServer: {
-    command: `"${exePath}" --config config/config.windows.json`,
+    command: `"${exePath}" --config config/config.development.json`,
     cwd: repoRoot,
     url: "http://127.0.0.1:8080/api/healthz",
     reuseExistingServer: true,

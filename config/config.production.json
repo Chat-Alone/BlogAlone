@@ -26,7 +26,7 @@
       "dependencies": [],
       "config": {
         "database_path": "/var/lib/blogalone/blogalone.db",
-        "migrations_dir": "migrations",
+        "migrations_dir": "/opt/blogalone/migrations",
         "db_client": "default"
       }
     },

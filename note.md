@@ -419,8 +419,8 @@ project/
 ├── cmake/
 │   └── deps.cmake
 ├── config/
-│   ├── config.windows.json
-│   └── config.linux.json
+│   ├── config.development.json
+│   └── config.production.json
 ├── src/
 │   ├── main.cc
 │   ├── controllers/
@@ -467,10 +467,10 @@ project/
                        proxy_set_header X-Request-Id $request_id
 
 本机进程
-  -> systemd运行/opt/blogalone/blogalone --config /etc/blogalone/config.linux.json
+  -> systemd运行/opt/blogalone/blogalone --config /etc/blogalone/config.json
 ```
 
-`config.linux.json`里设置`trusted_proxies:["127.0.0.1"]`。Drogon读取`X-Forwarded-For`时，从右往左跳过可信代理，取第一个非可信地址作为真实客户端IP。若请求不是来自可信代理，忽略`X-Forwarded-For`，直接使用连接IP。
+生产配置里设置`trusted_proxies:["127.0.0.1"]`。Drogon读取`X-Forwarded-For`时，从右往左跳过可信代理，取第一个非可信地址作为真实客户端IP。若请求不是来自可信代理，忽略`X-Forwarded-For`，直接使用连接IP。
 
 运行目录固定为：
 
@@ -482,9 +482,9 @@ project/
 /var/log/blogalone/             # 应用日志
 ```
 
-首次部署不开放公开接口创建管理员。本机执行`/opt/blogalone/blogalone admin create --username name --password-file /root/admin_password.txt`创建第一个管理员；若系统中已有管理员，该命令默认拒绝执行，除非显式传入`--force`并写入审计日志。
+首次部署不开放公开接口创建管理员。本机执行`/opt/blogalone/blogalone admin create --username name --password-file /root/admin_password.txt`创建第一个管理员；若系统中已有管理员，该命令默认拒绝执行，除非显式传入`--force`并写入`admin.bootstrap_force`审计日志。命令默认读取`/etc/blogalone/config.json`，也可用`--config`指定其他配置。
 
-更新流程为上传新二进制到临时文件、执行`--check-config`、停止服务、替换二进制、启动服务、访问`/api/healthz`。失败时恢复旧二进制并启动服务。该流程不做热更新，停机时间通常只有几秒。
+更新流程为上传新二进制到临时文件、执行`--check-config`、运行SQLite在线备份、停止服务、替换二进制、启动服务、访问`/api/healthz`。失败时停止新版进程，恢复旧二进制并启动服务。该流程不做热更新，停机时间通常只有几秒。
 
 `/api/healthz`不需要登录，只检查进程存活、配置已加载、数据库可执行轻量查询。不要在健康检查里做写入、迁移或外部网络请求。
 
@@ -492,9 +492,9 @@ project/
 
 ## 备份和恢复
 
-数据库备份使用SQLite在线备份能力，不能直接复制运行中的`blogalone.db`主文件。`backup.sh`执行`sqlite3 /var/lib/blogalone/blogalone.db ".backup '/backup/blogalone/YYYYMMDD-HHMMSS.db'"`，再打包上传目录。
+数据库备份使用SQLite在线备份能力，不能直接复制运行中的`blogalone.db`主文件。`backup.sh`执行sqlite3的`.backup`命令，检查副本完整性，再打包上传目录并生成SHA-256清单。
 
-保留策略为每日备份7份、每周备份4份。每次部署和迁移前强制生成一次备份。恢复演练至少做一次：在临时目录恢复数据库和上传文件，启动服务并访问板块列表、帖子详情和图片地址。
+保留策略为日备份保留7天、周备份保留28天。每次部署和迁移前强制生成一次备份。`restore-drill.sh`在临时目录恢复数据库和上传文件，启动隔离服务并访问板块列表、帖子详情和图片地址。
 
 日志保留30天。日志字段包含时间、级别、request_id、真实IP、user_id、HTTP方法、路径、状态码、耗时和错误码。密码、Cookie、CSRF令牌、邮箱完整地址不能写入日志。
 

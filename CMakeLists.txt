@@ -53,7 +53,10 @@ endif()
 
 add_library(blogalone_core STATIC
     src/app/routes.cc
+    src/cli/admin_command.cc
+    src/cli/command_line.cc
     src/config/app_config.cc
+    src/config/config_file.cc
     src/controllers/admin_controller.cc
     src/controllers/auth_controller.cc
     src/controllers/forum_controller.cc
@@ -89,6 +92,7 @@ add_library(blogalone_core STATIC
     src/services/upload_service.cc
     src/security/rate_limiter.cc
     src/util/crypto.cc
+    src/util/credentials.cc
     src/util/image.cc
     src/util/ip_address.cc
     src/util/markdown.cc
@@ -141,6 +145,7 @@ if(BUILD_TESTING)
         tests/unit/test_main.cc
         tests/unit/admin_test.cc
         tests/unit/auth_test.cc
+        tests/unit/cli_test.cc
         tests/unit/deps_smoke_test.cc
         tests/unit/forum_test.cc
         tests/unit/infrastructure_test.cc

@@ -1,0 +1,115 @@
+# BlogAlone部署手册
+
+本目录提供nginx反向代理、systemd服务、SQLite在线备份、更新回滚和恢复演练文件。目标系统为使用systemd的Linux发行版。
+
+## 主机准备
+
+安装运行工具：
+
+```bash
+sudo apt-get install nginx sqlite3 curl python3 tar coreutils util-linux
+```
+
+创建专用账号和目录：
+
+```bash
+sudo useradd --system --home /var/lib/blogalone --shell /usr/sbin/nologin blogalone
+sudo install -d -o root -g root -m 0755 /opt/blogalone /etc/blogalone
+sudo install -d -o blogalone -g blogalone -m 0750 /var/lib/blogalone /var/lib/blogalone/uploads
+sudo install -d -o root -g root -m 0700 /backup/blogalone
+```
+
+把编译后的`blogalone`、`web`和`migrations`安装到`/opt/blogalone`，把生产配置安装到`/etc/blogalone`：
+
+```bash
+sudo install -m 0755 build-linux/blogalone /opt/blogalone/blogalone
+sudo cp -a web migrations /opt/blogalone/
+sudo install -m 0640 -o root -g blogalone config/config.production.json /etc/blogalone/config.json
+sudo install -m 0755 deploy/backup.sh deploy/update.sh deploy/restore-drill.sh /opt/blogalone/
+```
+
+配置检查会验证JSON、自定义参数、单连接SQLite约束、迁移配置，以及数据库父目录、上传目录、页面目录和迁移目录：
+
+```bash
+/opt/blogalone/blogalone --check-config --config /etc/blogalone/config.json
+```
+
+## 创建初始管理员
+
+管理员命令从权限受限的文件读取密码，不接受命令行明文密码。用户名规则与注册接口相同，密码长度为8至128字节。
+
+```bash
+sudo sh -c 'umask 077; printf "%s\n" "替换为强密码" > /root/blogalone-admin-password'
+sudo /opt/blogalone/blogalone admin create \
+  --username site_admin \
+  --password-file /root/blogalone-admin-password
+sudo rm /root/blogalone-admin-password
+```
+
+命令默认使用`/etc/blogalone/config.json`。数据库内已有管理员时会拒绝创建。确需新增本机管理员可传`--force`，该操作会写入`admin.bootstrap_force`审计记录：
+
+```bash
+sudo /opt/blogalone/blogalone admin create \
+  --username recovery_admin \
+  --password-file /root/blogalone-admin-password \
+  --force
+```
+
+## systemd与nginx
+
+安装并启动服务：
+
+```bash
+sudo install -m 0644 deploy/blogalone.service /etc/systemd/system/blogalone.service
+sudo systemctl daemon-reload
+sudo systemctl enable --now blogalone.service
+curl --fail http://127.0.0.1:8080/api/healthz
+```
+
+复制`deploy/nginx.conf`前替换域名和证书路径。配置通过检查后再重载nginx：
+
+```bash
+sudo install -m 0644 deploy/nginx.conf /etc/nginx/sites-available/blogalone.conf
+sudo ln -s /etc/nginx/sites-available/blogalone.conf /etc/nginx/sites-enabled/blogalone.conf
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
+## 备份与保留
+
+`backup.sh`用sqlite3的`.backup`创建一致性数据库副本，执行完整性检查，再归档上传目录并生成SHA-256清单。脚本保留7天日备份和28天周备份，周备份在UTC星期日生成。
+
+```bash
+sudo /opt/blogalone/backup.sh
+```
+
+输出内容是本次备份前缀，恢复演练直接使用该值。可通过环境变量修改路径：
+
+- `BLOGALONE_DATABASE_PATH`
+- `BLOGALONE_UPLOADS_PATH`
+- `BLOGALONE_BACKUP_ROOT`
+
+建议用systemd timer或cron每日执行，失败必须进入主机告警。
+
+## 恢复演练
+
+恢复脚本校验备份清单和SQLite完整性，在临时目录恢复数据库与上传文件，生成隔离配置并启动真实BlogAlone进程。脚本会请求健康接口、板块接口、首个主题详情和首张已记录图片，退出时清理临时文件。
+
+```bash
+sudo /opt/blogalone/restore-drill.sh \
+  /backup/blogalone/daily-20260712-120000 \
+  /opt/blogalone/blogalone \
+  /etc/blogalone/config.json
+```
+
+演练默认监听`127.0.0.1:18081`，可用`BLOGALONE_RESTORE_PORT`改端口。至少在首次上线、迁移变更和恢复流程修改后执行一次。
+
+## 带回滚更新
+
+`update.sh`接收一个已经上传到本机的新版二进制。流程包含新版配置检查、强制备份、停服务、替换、启动和健康检查。任一步失败都会恢复旧二进制并重新启动服务。
+
+```bash
+sudo /opt/blogalone/update.sh /tmp/blogalone.new /etc/blogalone/config.json
+```
+
+脚本只更新二进制。`web`、`migrations`或配置发生变化时，应先把新文件安装到对应目录并运行配置检查；数据库迁移前仍由更新脚本强制生成备份。

@@ -1,0 +1,25 @@
+[Unit]
+Description=BlogAlone forum service
+After=network.target
+
+[Service]
+Type=simple
+User=blogalone
+Group=blogalone
+WorkingDirectory=/opt/blogalone
+ExecStartPre=/opt/blogalone/blogalone --check-config --config /etc/blogalone/config.json
+ExecStart=/opt/blogalone/blogalone --config /etc/blogalone/config.json
+Restart=on-failure
+RestartSec=3s
+TimeoutStopSec=30s
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/blogalone
+UMask=0027
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
