@@ -106,10 +106,19 @@ sudo /opt/blogalone/restore-drill.sh \
 
 ## 带回滚更新
 
-`update.sh`接收一个已经上传到本机的新版二进制。流程包含新版配置检查、强制备份、停服务、替换、启动和健康检查。任一步失败都会恢复旧二进制并重新启动服务。
+`update.sh`接收一个已经上传到本机的发布目录。目录内必须包含`blogalone`、`web`和`migrations`。流程包含新版配置检查、强制备份、停服务、整体替换、启动和健康检查。任一步失败都会恢复旧二进制、页面、迁移、数据库和上传目录，再重新启动服务。
 
 ```bash
-sudo /opt/blogalone/update.sh /tmp/blogalone.new /etc/blogalone/config.json
+sudo /opt/blogalone/update.sh /tmp/blogalone-release /etc/blogalone/config.json
 ```
 
-脚本只更新二进制。`web`、`migrations`或配置发生变化时，应先把新文件安装到对应目录并运行配置检查；数据库迁移前仍由更新脚本强制生成备份。
+发布目录结构如下：
+
+```text
+/tmp/blogalone-release/
+├── blogalone
+├── web/
+└── migrations/
+```
+
+配置文件仍由管理员单独维护。配置变更应在执行脚本前写入`/etc/blogalone/config.json`，脚本会在停服务前用新二进制检查该配置。不要提前覆盖`/opt/blogalone`中的运行文件，脚本需要保留当前版本用于自动回滚。

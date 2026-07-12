@@ -242,26 +242,6 @@ void RequestRateLimiter::cancel_reservation(const std::vector<std::string>& keys
     }
 }
 
-void RequestRateLimiter::reset(
-    RateLimitScope scope,
-    std::string_view client_ip,
-    std::optional<std::int64_t> user_id
-)
-{
-    const auto keys = keys_for(scope, client_ip, user_id);
-    const std::scoped_lock lock{mutex_};
-    for(const auto& key : keys) {
-        const auto existing = entries_.find(key);
-        if(existing == entries_.end()) {
-            continue;
-        }
-        existing->second.requests.clear();
-        if(existing->second.in_flight == 0) {
-            entries_.erase(existing);
-        }
-    }
-}
-
 RequestRateLimiter& request_rate_limiter()
 {
     static RequestRateLimiter limiter;

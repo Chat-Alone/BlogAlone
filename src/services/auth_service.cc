@@ -1,6 +1,7 @@
 #include "services/auth_service.h"
 
 #include "db/transaction.h"
+#include "repositories/upload_repository.h"
 #include "util/credentials.h"
 #include "util/crypto.h"
 #include "util/text.h"
@@ -48,7 +49,9 @@ using PasswordHashKey = std::pair<unsigned long long, std::size_t>;
 
 [[nodiscard]] bool is_valid_avatar_url(std::string_view url)
 {
-    if(!url.starts_with(kAvatarUrlPrefix) || url.size() > kMaxAvatarUrlLength) {
+    if(!url.starts_with(kAvatarUrlPrefix)
+        || url.size() == kAvatarUrlPrefix.size()
+        || url.size() > kMaxAvatarUrlLength) {
         return false;
     }
     if(url.find("..") != std::string_view::npos) {
@@ -316,11 +319,19 @@ AuthResult<models::User> AuthService::update_profile(
             user_repository_.client(),
             drogon::orm::TransactionType::Immediate
         };
-        const repositories::UserRepository user_repository{transaction.client()};
+        const auto transaction_client = transaction.client();
+        const repositories::UserRepository user_repository{transaction_client};
+        const repositories::UploadRepository upload_repository{transaction_client};
         if(email.has_value()) {
             const auto existing = user_repository.find_by_email(*email);
             if(existing.has_value() && existing->id != user_id) {
                 return AuthError::email_taken;
+            }
+        }
+        if(avatar_url.has_value()) {
+            const auto upload_path = std::string_view{*avatar_url}.substr(kAvatarUrlPrefix.size());
+            if(!upload_repository.mark_ref_attached(user_id, upload_path, now)) {
+                return AuthError::not_found;
             }
         }
         user_repository.update_profile(user_id, email, avatar_url, now);

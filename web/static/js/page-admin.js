@@ -71,6 +71,11 @@ function initForumsPanel(container) {
     const descInput = el("input", { type: "text", maxlength: "200" });
     const sortInput = el("input", { type: "number", value: "0" });
     const errorBox = el("p", { className: "ba-field-error", role: "alert" });
+    const submitButton = el(
+      "button",
+      { type: "submit", className: "ba-btn ba-btn-primary" },
+      ["新建板块"]
+    );
 
     const form = el(
       "form",
@@ -79,6 +84,7 @@ function initForumsPanel(container) {
         onSubmit: async (event) => {
           event.preventDefault();
           errorBox.textContent = "";
+          submitButton.disabled = true;
           try {
             await api.post("/api/admin/forums", {
               slug: slugInput.value.trim(),
@@ -86,9 +92,11 @@ function initForumsPanel(container) {
               description: descInput.value.trim(),
               sort_order: Number.parseInt(sortInput.value, 10) || 0,
             });
-            load();
+            await load();
           } catch (error) {
             errorBox.textContent = error instanceof ApiError ? error.message : "创建失败";
+          } finally {
+            submitButton.disabled = false;
           }
         },
       },
@@ -97,7 +105,7 @@ function initForumsPanel(container) {
         el("div", { className: "ba-field" }, [el("label", {}, ["名称"]), nameInput]),
         el("div", { className: "ba-field" }, [el("label", {}, ["说明"]), descInput]),
         el("div", { className: "ba-field" }, [el("label", {}, ["排序"]), sortInput]),
-        el("button", { type: "submit", className: "ba-btn ba-btn-primary" }, ["新建板块"]),
+        submitButton,
       ]
     );
     return el("div", {}, [form, errorBox]);

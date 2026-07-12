@@ -7,9 +7,12 @@ const path = require("node:path");
 const { execFileSync } = require("node:child_process");
 const { test, expect } = require("@playwright/test");
 
-const repoRoot = path.resolve(__dirname, "..", "..", "..");
-const dbPath = path.join(repoRoot, "blogalone.dev.db");
+const dbPath = process.env.BLOGALONE_E2E_DB_PATH;
 const promoteScript = path.join(__dirname, "..", "promote-admin.py");
+
+if (!dbPath) {
+  throw new Error("BLOGALONE_E2E_DB_PATH is required");
+}
 
 // Minimal valid 1x1 RGBA PNG, base64-encoded (same fixture bytes used by the
 // C++ integration test suite's valid_1x1_png() helper).

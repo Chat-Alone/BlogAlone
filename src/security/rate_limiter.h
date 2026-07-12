@@ -66,12 +66,6 @@ class RequestRateLimiter {
         TimePoint now = Clock::now()
     );
 
-    void reset(
-        RateLimitScope scope,
-        std::string_view client_ip,
-        std::optional<std::int64_t> user_id
-    );
-
   private:
     struct Entry {
         std::deque<TimePoint> requests;

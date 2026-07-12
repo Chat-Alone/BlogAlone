@@ -258,7 +258,6 @@ void handle_login(
     }
 
     reservation->cancel();
-    limiter.reset(security::RateLimitScope::login, client_ip, std::nullopt);
     callback(auth_success(*result, app_config.session_ttl_seconds));
 }
 

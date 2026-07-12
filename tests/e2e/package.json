@@ -4,7 +4,7 @@
   "version": "0.0.0",
   "description": "Playwright browser tests for BlogAlone. Dev-only tooling: not part of the production build or the Drogon backend.",
   "scripts": {
-    "test": "playwright test"
+    "test": "node run-tests.js"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.12.1",

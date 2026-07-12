@@ -820,6 +820,47 @@ TEST(HttpIntegrationTest, ListsAdminSessionsAndDeletedContentThenReflectsRestore
     EXPECT_EQ(json_body(invalid_pagination_result.response)["error"]["code"].asString(), "invalid_argument");
 }
 
+TEST(HttpIntegrationTest, SuccessfulLoginDoesNotResetFailedLoginLimit)
+{
+    static_cast<void>(register_user(
+        "rate_limit_owner",
+        "rate-limit-owner@example.test",
+        "correct-horse-battery-staple"
+    ));
+
+    const auto send_login = [](std::string username, std::string password) {
+        Json::Value body;
+        body["username"] = std::move(username);
+        body["password"] = std::move(password);
+        return server->send(json_request_for(
+            drogon::Post,
+            "/api/auth/login",
+            std::move(body)
+        ));
+    };
+
+    for(int attempt = 0; attempt < 4; ++attempt) {
+        const auto failed = send_login("missing_rate_limit_user", "wrong-password");
+        expect_ok(failed);
+        ASSERT_EQ(failed.response->statusCode(), drogon::k401Unauthorized);
+    }
+
+    const auto successful = send_login(
+        "rate_limit_owner",
+        "correct-horse-battery-staple"
+    );
+    expect_ok(successful);
+    ASSERT_EQ(successful.response->statusCode(), drogon::k200OK);
+
+    const auto fifth_failure = send_login("missing_rate_limit_user", "wrong-password");
+    expect_ok(fifth_failure);
+    ASSERT_EQ(fifth_failure.response->statusCode(), drogon::k401Unauthorized);
+
+    const auto limited = send_login("missing_rate_limit_user", "wrong-password");
+    expect_ok(limited);
+    EXPECT_EQ(limited.response->statusCode(), drogon::k429TooManyRequests);
+}
+
 }
 
 int main(int argc, char* argv[])

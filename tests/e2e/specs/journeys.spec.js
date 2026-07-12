@@ -1,14 +1,17 @@
 // End-to-end journeys covering primary_goal user flows against a real
-// running BlogAlone backend + SQLite dev database. Dev/test-only tooling.
+// running BlogAlone backend + isolated temporary SQLite database.
 // Tests share a single browser context (and therefore cookies) on purpose:
 // they exercise a continuous session lifecycle rather than isolated pages.
 const path = require("node:path");
 const { execFileSync } = require("node:child_process");
 const { test, expect } = require("@playwright/test");
 
-const repoRoot = path.resolve(__dirname, "..", "..", "..");
-const dbPath = path.join(repoRoot, "blogalone.dev.db");
+const dbPath = process.env.BLOGALONE_E2E_DB_PATH;
 const promoteScript = path.join(__dirname, "..", "promote-admin.py");
+
+if (!dbPath) {
+  throw new Error("BLOGALONE_E2E_DB_PATH is required");
+}
 
 function unique(prefix) {
   return `${prefix}${Date.now().toString(36)}${Math.floor(Math.random() * 1000)}`;

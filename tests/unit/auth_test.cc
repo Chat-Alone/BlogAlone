@@ -4,6 +4,7 @@
 #include "http/session_context.h"
 #include "models/user.h"
 #include "repositories/session_repository.h"
+#include "repositories/upload_repository.h"
 #include "services/auth_service.h"
 #include "util/crypto.h"
 #include "util/password.h"
@@ -503,6 +504,20 @@ TEST(AuthServiceTest, UpdatesProfileAndRejectsDuplicateEmail)
     ASSERT_TRUE(first.has_value());
     ASSERT_TRUE(second.has_value());
 
+    const auto client = auth_test_client();
+    const blogalone::repositories::UploadRepository uploads{client};
+    const auto upload_id = uploads.create_upload(
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "avatar.png",
+        "image/png",
+        1,
+        1,
+        1,
+        41
+    );
+    ASSERT_TRUE(upload_id.has_value());
+    ASSERT_TRUE(uploads.create_ref(second->user.id, *upload_id, 41));
+
     const auto duplicate = service.update_profile(
         second->user.id,
         blogalone::services::UpdateProfileRequest{
@@ -526,6 +541,14 @@ TEST(AuthServiceTest, UpdatesProfileAndRejectsDuplicateEmail)
     EXPECT_EQ(updated->email, std::optional<std::string>{"updated@example.test"});
     EXPECT_EQ(updated->avatar_url, std::optional<std::string>{"/uploads/avatar.png"});
     EXPECT_EQ(updated->updated_at, 43);
+
+    const auto refs = client->execSqlSync(
+        "SELECT attached_at FROM upload_refs WHERE owner_id = ? AND upload_id = ?",
+        second->user.id,
+        *upload_id
+    );
+    ASSERT_EQ(refs.size(), 1);
+    EXPECT_EQ(refs.at(0)["attached_at"].as<std::int64_t>(), 43);
 }
 
 TEST(SessionRepositoryTest, DeletesOnlyExpiredSessions)
