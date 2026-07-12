@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>管理后台 - BlogAlone</title>
+  <link rel="stylesheet" href="/static/css/tokens.css">
+  <link rel="stylesheet" href="/static/css/base.css">
+  <link rel="stylesheet" href="/static/css/layout.css">
+  <link rel="stylesheet" href="/static/css/forms.css">
+  <link rel="stylesheet" href="/static/css/modal.css">
+  <link rel="stylesheet" href="/static/css/admin.css">
+  <script type="module" src="/static/js/site-chrome.js"></script>
+  <script type="module" src="/static/js/page-admin.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">跳转到主内容</a>
+  <div class="ba-shell">
+    <header class="ba-site-header">
+      <div class="ba-container ba-site-header-inner">
+        <a class="ba-brand" href="/">BlogAlone</a>
+        <nav class="ba-primary-nav" aria-label="主导航">
+          <a href="/">首页</a>
+        </nav>
+        <div class="ba-session-box" data-session-box aria-label="账户"></div>
+      </div>
+    </header>
+    <main id="main" class="ba-main" tabindex="-1">
+      <div class="ba-container">
+        <div data-admin-guard>
+          <div class="ba-loading-state" role="status">正在校验管理员权限...</div>
+        </div>
+        <div data-admin-root hidden>
+          <section class="ba-panel">
+            <div class="ba-panel-title"><h1>管理后台</h1></div>
+            <div class="ba-panel-body">
+              <div role="tablist" class="ba-admin-tabs" aria-label="管理后台分区">
+                <button type="button" role="tab" id="tab-forums" aria-controls="panel-forums" aria-selected="true" class="ba-admin-tab" data-tab="forums">板块</button>
+                <button type="button" role="tab" id="tab-users" aria-controls="panel-users" aria-selected="false" class="ba-admin-tab" data-tab="users">用户</button>
+                <button type="button" role="tab" id="tab-deleted" aria-controls="panel-deleted" aria-selected="false" class="ba-admin-tab" data-tab="deleted">已删除内容</button>
+                <button type="button" role="tab" id="tab-sessions" aria-controls="panel-sessions" aria-selected="false" class="ba-admin-tab" data-tab="sessions">会话</button>
+                <button type="button" role="tab" id="tab-audit" aria-controls="panel-audit" aria-selected="false" class="ba-admin-tab" data-tab="audit">审计日志</button>
+              </div>
+
+              <div id="panel-forums" role="tabpanel" aria-labelledby="tab-forums" class="ba-admin-panel ba-admin-panel-active" data-panel="forums"></div>
+              <div id="panel-users" role="tabpanel" aria-labelledby="tab-users" class="ba-admin-panel" data-panel="users" hidden></div>
+              <div id="panel-deleted" role="tabpanel" aria-labelledby="tab-deleted" class="ba-admin-panel" data-panel="deleted" hidden></div>
+              <div id="panel-sessions" role="tabpanel" aria-labelledby="tab-sessions" class="ba-admin-panel" data-panel="sessions" hidden></div>
+              <div id="panel-audit" role="tabpanel" aria-labelledby="tab-audit" class="ba-admin-panel" data-panel="audit" hidden></div>
+            </div>
+          </section>
+        </div>
+      </div>
+    </main>
+    <footer class="ba-site-footer">
+      <div class="ba-container ba-footer-links">
+        <span>BlogAlone MVP</span>
+      </div>
+    </footer>
+  </div>
+</body>
+</html>

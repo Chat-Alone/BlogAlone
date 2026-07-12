@@ -133,6 +133,14 @@ using HttpCallback = std::function<void(const drogon::HttpResponsePtr&)>;
     return value->asBool();
 }
 
+[[nodiscard]] Json::Value user_ref_json(std::int64_t id, std::string_view username)
+{
+    Json::Value json;
+    json["id"] = static_cast<Json::Int64>(id);
+    json["username"] = std::string{username};
+    return json;
+}
+
 [[nodiscard]] Json::Value forum_to_json(const models::Forum& forum)
 {
     Json::Value json;
@@ -176,6 +184,84 @@ using HttpCallback = std::function<void(const drogon::HttpResponsePtr&)>;
     json["target_id"] = static_cast<Json::Int64>(entry.target_id);
     json["detail"] = entry.detail;
     json["created_at"] = static_cast<Json::Int64>(entry.created_at);
+    return json;
+}
+
+[[nodiscard]] Json::Value session_summary_to_json(const models::AdminSessionSummary& session)
+{
+    Json::Value json;
+    json["token_hash"] = session.token_hash;
+    json["user_id"] = static_cast<Json::Int64>(session.user_id);
+    json["username"] = session.username;
+    json["created_at"] = static_cast<Json::Int64>(session.created_at);
+    json["expires_at"] = static_cast<Json::Int64>(session.expires_at);
+    json["revoked_at"] = session.revoked_at.has_value()
+        ? Json::Value{static_cast<Json::Int64>(*session.revoked_at)}
+        : Json::Value{};
+    json["admin_confirmed_at"] = session.admin_confirmed_at.has_value()
+        ? Json::Value{static_cast<Json::Int64>(*session.admin_confirmed_at)}
+        : Json::Value{};
+    json["ip"] = session.ip;
+    json["user_agent"] = session.user_agent;
+    return json;
+}
+
+[[nodiscard]] Json::Value deleted_by_json(
+    const std::optional<std::int64_t>& deleted_by,
+    const std::optional<std::string>& deleted_by_username
+)
+{
+    Json::Value json;
+    if(!deleted_by.has_value()) {
+        json["id"] = Json::Value{};
+        json["username"] = Json::Value{};
+        return json;
+    }
+    json["id"] = static_cast<Json::Int64>(*deleted_by);
+    json["username"] = deleted_by_username.has_value() ? Json::Value{*deleted_by_username} : Json::Value{};
+    return json;
+}
+
+[[nodiscard]] Json::Value deleted_thread_to_json(const models::DeletedThreadSummary& thread)
+{
+    Json::Value json;
+    json["id"] = static_cast<Json::Int64>(thread.id);
+    json["forum"]["id"] = static_cast<Json::Int64>(thread.forum_id);
+    json["forum"]["slug"] = thread.forum_slug;
+    json["forum"]["name"] = thread.forum_name;
+    json["author"] = user_ref_json(thread.author_id, thread.author_username);
+    json["title"] = thread.title;
+    json["body_excerpt"] = thread.body_excerpt;
+    json["deleted_by"] = deleted_by_json(thread.deleted_by, thread.deleted_by_username);
+    json["deleted_at"] = static_cast<Json::Int64>(thread.deleted_at);
+    return json;
+}
+
+[[nodiscard]] Json::Value deleted_post_to_json(const models::DeletedPostSummary& post)
+{
+    Json::Value json;
+    json["id"] = static_cast<Json::Int64>(post.id);
+    json["thread_id"] = static_cast<Json::Int64>(post.thread_id);
+    json["thread_title"] = post.thread_title;
+    json["author"] = user_ref_json(post.author_id, post.author_username);
+    json["floor_no"] = static_cast<Json::Int64>(post.floor_no);
+    json["body_excerpt"] = post.body_excerpt;
+    json["deleted_by"] = deleted_by_json(post.deleted_by, post.deleted_by_username);
+    json["deleted_at"] = static_cast<Json::Int64>(post.deleted_at);
+    return json;
+}
+
+[[nodiscard]] Json::Value deleted_sub_post_to_json(const models::DeletedSubPostSummary& sub_post)
+{
+    Json::Value json;
+    json["id"] = static_cast<Json::Int64>(sub_post.id);
+    json["post_id"] = static_cast<Json::Int64>(sub_post.post_id);
+    json["thread_id"] = static_cast<Json::Int64>(sub_post.thread_id);
+    json["thread_title"] = sub_post.thread_title;
+    json["author"] = user_ref_json(sub_post.author_id, sub_post.author_username);
+    json["body_excerpt"] = sub_post.body_excerpt;
+    json["deleted_by"] = deleted_by_json(sub_post.deleted_by, sub_post.deleted_by_username);
+    json["deleted_at"] = static_cast<Json::Int64>(sub_post.deleted_at);
     return json;
 }
 
@@ -373,6 +459,115 @@ void handle_reauth(
     Json::Value response_body;
     response_body["admin_confirmed_at"] = static_cast<Json::Int64>(result->confirmed_at);
     callback(drogon::HttpResponse::newHttpJsonResponse(response_body));
+}
+
+void handle_list_sessions(
+    const drogon::HttpRequestPtr& request,
+    const HttpCallback& callback
+)
+{
+    const auto session = admin_session(request, callback);
+    if(!session.has_value()) {
+        return;
+    }
+    std::optional<std::int64_t> user_id_filter;
+    const auto user_id_value = request->getParameter("user_id");
+    if(!user_id_value.empty()) {
+        user_id_filter = parse_int64(user_id_value);
+        if(!user_id_filter.has_value()) {
+            callback(invalid_response(request, "invalid user_id"));
+            return;
+        }
+    }
+    const auto pagination = pagination_from(request);
+    if(!pagination.has_value()) {
+        callback(invalid_response(request, "invalid pagination"));
+        return;
+    }
+    const auto result = services::AdminService{}.list_sessions(
+        session->user_id,
+        user_id_filter,
+        *pagination
+    );
+    if(!result.has_value()) {
+        callback(error_response(request, result.error()));
+        return;
+    }
+    callback(drogon::HttpResponse::newHttpJsonResponse(
+        page_to_json(*result, session_summary_to_json)
+    ));
+}
+
+void handle_list_deleted_threads(
+    const drogon::HttpRequestPtr& request,
+    const HttpCallback& callback
+)
+{
+    const auto session = admin_session(request, callback);
+    if(!session.has_value()) {
+        return;
+    }
+    const auto pagination = pagination_from(request);
+    if(!pagination.has_value()) {
+        callback(invalid_response(request, "invalid pagination"));
+        return;
+    }
+    const auto result = services::AdminService{}.list_deleted_threads(session->user_id, *pagination);
+    if(!result.has_value()) {
+        callback(error_response(request, result.error()));
+        return;
+    }
+    callback(drogon::HttpResponse::newHttpJsonResponse(
+        page_to_json(*result, deleted_thread_to_json)
+    ));
+}
+
+void handle_list_deleted_posts(
+    const drogon::HttpRequestPtr& request,
+    const HttpCallback& callback
+)
+{
+    const auto session = admin_session(request, callback);
+    if(!session.has_value()) {
+        return;
+    }
+    const auto pagination = pagination_from(request);
+    if(!pagination.has_value()) {
+        callback(invalid_response(request, "invalid pagination"));
+        return;
+    }
+    const auto result = services::AdminService{}.list_deleted_posts(session->user_id, *pagination);
+    if(!result.has_value()) {
+        callback(error_response(request, result.error()));
+        return;
+    }
+    callback(drogon::HttpResponse::newHttpJsonResponse(
+        page_to_json(*result, deleted_post_to_json)
+    ));
+}
+
+void handle_list_deleted_sub_posts(
+    const drogon::HttpRequestPtr& request,
+    const HttpCallback& callback
+)
+{
+    const auto session = admin_session(request, callback);
+    if(!session.has_value()) {
+        return;
+    }
+    const auto pagination = pagination_from(request);
+    if(!pagination.has_value()) {
+        callback(invalid_response(request, "invalid pagination"));
+        return;
+    }
+    const auto result = services::AdminService{}.list_deleted_sub_posts(session->user_id, *pagination);
+    if(!result.has_value()) {
+        callback(error_response(request, result.error()));
+        return;
+    }
+    callback(drogon::HttpResponse::newHttpJsonResponse(
+        page_to_json(*result, deleted_sub_post_to_json)
+    ));
 }
 
 enum class ThreadFlag {
@@ -741,6 +936,42 @@ void register_admin_routes()
         [](const drogon::HttpRequestPtr& request, HttpCallback&& callback) {
             http::run_guarded_request(request, callback, "admin.audit_logs.list", [&]() {
                 handle_list_audit_logs(request, callback);
+            });
+        },
+        admin_constraints(drogon::Get)
+    );
+    drogon::app().registerHandler(
+        "/api/admin/sessions",
+        [](const drogon::HttpRequestPtr& request, HttpCallback&& callback) {
+            http::run_guarded_request(request, callback, "admin.sessions.list", [&]() {
+                handle_list_sessions(request, callback);
+            });
+        },
+        admin_constraints(drogon::Get)
+    );
+    drogon::app().registerHandler(
+        "/api/admin/deleted/threads",
+        [](const drogon::HttpRequestPtr& request, HttpCallback&& callback) {
+            http::run_guarded_request(request, callback, "admin.deleted.threads", [&]() {
+                handle_list_deleted_threads(request, callback);
+            });
+        },
+        admin_constraints(drogon::Get)
+    );
+    drogon::app().registerHandler(
+        "/api/admin/deleted/posts",
+        [](const drogon::HttpRequestPtr& request, HttpCallback&& callback) {
+            http::run_guarded_request(request, callback, "admin.deleted.posts", [&]() {
+                handle_list_deleted_posts(request, callback);
+            });
+        },
+        admin_constraints(drogon::Get)
+    );
+    drogon::app().registerHandler(
+        "/api/admin/deleted/sub_posts",
+        [](const drogon::HttpRequestPtr& request, HttpCallback&& callback) {
+            http::run_guarded_request(request, callback, "admin.deleted.sub_posts", [&]() {
+                handle_list_deleted_sub_posts(request, callback);
             });
         },
         admin_constraints(drogon::Get)

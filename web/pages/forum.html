@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>BlogAlone - 论坛首页</title>
+  <title>板块 - BlogAlone</title>
   <link rel="stylesheet" href="/static/css/tokens.css">
   <link rel="stylesheet" href="/static/css/base.css">
   <link rel="stylesheet" href="/static/css/layout.css">
@@ -11,7 +11,7 @@
   <link rel="stylesheet" href="/static/css/forms.css">
   <link rel="stylesheet" href="/static/css/modal.css">
   <script type="module" src="/static/js/site-chrome.js"></script>
-  <script type="module" src="/static/js/page-home.js"></script>
+  <script type="module" src="/static/js/page-forum.js"></script>
 </head>
 <body>
   <a class="skip-link" href="#main">跳转到主内容</a>
@@ -25,18 +25,23 @@
         <div class="ba-session-box" data-session-box aria-label="账户"></div>
       </div>
     </header>
-    <div class="ba-announcement">
-      <div class="ba-container">站点公告:BlogAlone 是一个用于演示的小型贴吧式论坛。</div>
-    </div>
     <main id="main" class="ba-main" tabindex="-1">
       <div class="ba-container">
-        <section class="ba-panel" aria-labelledby="forums-title">
+        <p class="ba-breadcrumb"><a href="/">首页</a> &gt; <span data-forum-name>板块</span></p>
+        <section class="ba-panel" aria-labelledby="forum-title">
           <div class="ba-panel-title">
-            <h1 id="forums-title">板块目录</h1>
-            <span class="ba-status-pill" data-forums-status>正在加载</span>
+            <h1 id="forum-title" data-forum-title>正在加载板块</h1>
+            <span class="ba-status-pill" data-threads-status>正在加载</span>
           </div>
-          <div class="ba-panel-body" data-forums-body>
-            <div class="ba-loading-state" role="status">正在加载板块列表...</div>
+          <div class="ba-panel-body">
+            <p class="ba-form-footnote" data-forum-desc></p>
+            <p style="margin-bottom: 12px">
+              <a class="ba-btn ba-btn-primary" data-compose-link href="/compose">发表新主题</a>
+            </p>
+            <div data-threads-body>
+              <div class="ba-loading-state" role="status">正在加载主题列表...</div>
+            </div>
+            <div data-threads-pagination></div>
           </div>
         </section>
       </div>

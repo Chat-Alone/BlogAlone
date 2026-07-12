@@ -1,45 +1,46 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>Thread - BlogAlone</title>
-  <link rel="stylesheet" href="/static/css/retro.css">
-  <script src="/static/js/api.js" defer></script>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>主题 - BlogAlone</title>
+  <link rel="stylesheet" href="/static/css/tokens.css">
+  <link rel="stylesheet" href="/static/css/base.css">
+  <link rel="stylesheet" href="/static/css/layout.css">
+  <link rel="stylesheet" href="/static/css/forum.css">
+  <link rel="stylesheet" href="/static/css/forms.css">
+  <link rel="stylesheet" href="/static/css/modal.css">
+  <script type="module" src="/static/js/site-chrome.js"></script>
+  <script type="module" src="/static/js/page-thread.js"></script>
 </head>
 <body>
-  <a class="skip-link" href="#main">Skip to content</a>
-  <header class="site-header">
-    <nav class="site-nav" aria-label="Primary">
-      <a class="brand" href="/">BlogAlone</a>
-      <div class="nav-links">
-        <a href="/">Forums</a>
+  <a class="skip-link" href="#main">跳转到主内容</a>
+  <div class="ba-shell">
+    <header class="ba-site-header">
+      <div class="ba-container ba-site-header-inner">
+        <a class="ba-brand" href="/">BlogAlone</a>
+        <nav class="ba-primary-nav" aria-label="主导航">
+          <a href="/">首页</a>
+        </nav>
+        <div class="ba-session-box" data-session-box aria-label="账户"></div>
       </div>
-    </nav>
-  </header>
-  <main id="main" class="page-shell">
-    <article class="content-panel thread-shell" aria-labelledby="thread-title">
-      <div class="section-heading">
-        <div>
-          <p class="eyebrow">Thread</p>
-          <h1 id="thread-title">Loading thread</h1>
-        </div>
-        <span class="status-pill" data-thread-status>Loading</span>
-      </div>
-      <div class="rich-body" data-thread-body></div>
-      <div class="section-heading replies-heading">
-        <h2>Replies</h2>
-        <span class="status-pill" data-posts-count>0</span>
-      </div>
-      <div class="post-list" data-posts-list>
-        <div class="empty-state">
-          <p>Loading replies.</p>
+    </header>
+    <main id="main" class="ba-main" tabindex="-1">
+      <div class="ba-container">
+        <p class="ba-breadcrumb">
+          <a href="/">首页</a> &gt; <a data-forum-link href="/">板块</a> &gt; <span data-thread-crumb>主题</span>
+        </p>
+        <div data-thread-root>
+          <div class="ba-loading-state" role="status">正在加载主题...</div>
         </div>
       </div>
-    </article>
-  </main>
-  <footer class="site-footer">
-    <p>BlogAlone MVP</p>
-  </footer>
+    </main>
+    <footer class="ba-site-footer">
+      <div class="ba-container ba-footer-links">
+        <span>BlogAlone MVP</span>
+        <a href="/api/healthz">服务状态</a>
+      </div>
+    </footer>
+  </div>
 </body>
 </html>

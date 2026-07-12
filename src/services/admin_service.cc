@@ -298,6 +298,127 @@ AdminResult<AdminPage<models::AuditLogEntry>> AdminService::list_audit_logs(
     return page;
 }
 
+AdminResult<AdminPage<models::AdminSessionSummary>> AdminService::list_sessions(
+    std::int64_t admin_id,
+    const std::optional<std::int64_t>& user_id_filter,
+    AdminPaginationRequest pagination
+) const
+{
+    const auto offset = util::pagination_offset(pagination.page, pagination.page_size);
+    if(!offset.has_value()) {
+        return AdminError::invalid_input;
+    }
+
+    db::Transaction transaction{
+        admin_repository_.client(),
+        drogon::orm::TransactionType::Deferred
+    };
+    const auto db = transaction.client();
+    const repositories::AdminRepository repository{db};
+    if(!is_admin(repositories::UserRepository{db}, admin_id)) {
+        return AdminError::forbidden;
+    }
+    auto page = AdminPage<models::AdminSessionSummary>{
+        .items = repository.list_sessions(
+            user_id_filter,
+            pagination.page_size,
+            *offset
+        ),
+        .page = pagination.page,
+        .page_size = pagination.page_size,
+        .total = repository.count_sessions(user_id_filter)
+    };
+    transaction.commit();
+    return page;
+}
+
+AdminResult<AdminPage<models::DeletedThreadSummary>> AdminService::list_deleted_threads(
+    std::int64_t admin_id,
+    AdminPaginationRequest pagination
+) const
+{
+    const auto offset = util::pagination_offset(pagination.page, pagination.page_size);
+    if(!offset.has_value()) {
+        return AdminError::invalid_input;
+    }
+
+    db::Transaction transaction{
+        admin_repository_.client(),
+        drogon::orm::TransactionType::Deferred
+    };
+    const auto db = transaction.client();
+    const repositories::AdminRepository repository{db};
+    if(!is_admin(repositories::UserRepository{db}, admin_id)) {
+        return AdminError::forbidden;
+    }
+    auto page = AdminPage<models::DeletedThreadSummary>{
+        .items = repository.list_deleted_threads(pagination.page_size, *offset),
+        .page = pagination.page,
+        .page_size = pagination.page_size,
+        .total = repository.count_deleted_threads()
+    };
+    transaction.commit();
+    return page;
+}
+
+AdminResult<AdminPage<models::DeletedPostSummary>> AdminService::list_deleted_posts(
+    std::int64_t admin_id,
+    AdminPaginationRequest pagination
+) const
+{
+    const auto offset = util::pagination_offset(pagination.page, pagination.page_size);
+    if(!offset.has_value()) {
+        return AdminError::invalid_input;
+    }
+
+    db::Transaction transaction{
+        admin_repository_.client(),
+        drogon::orm::TransactionType::Deferred
+    };
+    const auto db = transaction.client();
+    const repositories::AdminRepository repository{db};
+    if(!is_admin(repositories::UserRepository{db}, admin_id)) {
+        return AdminError::forbidden;
+    }
+    auto page = AdminPage<models::DeletedPostSummary>{
+        .items = repository.list_deleted_posts(pagination.page_size, *offset),
+        .page = pagination.page,
+        .page_size = pagination.page_size,
+        .total = repository.count_deleted_posts()
+    };
+    transaction.commit();
+    return page;
+}
+
+AdminResult<AdminPage<models::DeletedSubPostSummary>> AdminService::list_deleted_sub_posts(
+    std::int64_t admin_id,
+    AdminPaginationRequest pagination
+) const
+{
+    const auto offset = util::pagination_offset(pagination.page, pagination.page_size);
+    if(!offset.has_value()) {
+        return AdminError::invalid_input;
+    }
+
+    db::Transaction transaction{
+        admin_repository_.client(),
+        drogon::orm::TransactionType::Deferred
+    };
+    const auto db = transaction.client();
+    const repositories::AdminRepository repository{db};
+    if(!is_admin(repositories::UserRepository{db}, admin_id)) {
+        return AdminError::forbidden;
+    }
+    auto page = AdminPage<models::DeletedSubPostSummary>{
+        .items = repository.list_deleted_sub_posts(pagination.page_size, *offset),
+        .page = pagination.page,
+        .page_size = pagination.page_size,
+        .total = repository.count_deleted_sub_posts()
+    };
+    transaction.commit();
+    return page;
+}
+
 AdminResult<ReauthResult> AdminService::reauth(
     std::int64_t admin_id,
     std::string_view session_token_hash,

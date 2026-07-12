@@ -3,15 +3,14 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>BlogAlone - 论坛首页</title>
+  <title>登录 - BlogAlone</title>
   <link rel="stylesheet" href="/static/css/tokens.css">
   <link rel="stylesheet" href="/static/css/base.css">
   <link rel="stylesheet" href="/static/css/layout.css">
-  <link rel="stylesheet" href="/static/css/forum.css">
   <link rel="stylesheet" href="/static/css/forms.css">
   <link rel="stylesheet" href="/static/css/modal.css">
   <script type="module" src="/static/js/site-chrome.js"></script>
-  <script type="module" src="/static/js/page-home.js"></script>
+  <script type="module" src="/static/js/page-login.js"></script>
 </head>
 <body>
   <a class="skip-link" href="#main">跳转到主内容</a>
@@ -25,18 +24,26 @@
         <div class="ba-session-box" data-session-box aria-label="账户"></div>
       </div>
     </header>
-    <div class="ba-announcement">
-      <div class="ba-container">站点公告:BlogAlone 是一个用于演示的小型贴吧式论坛。</div>
-    </div>
     <main id="main" class="ba-main" tabindex="-1">
       <div class="ba-container">
-        <section class="ba-panel" aria-labelledby="forums-title">
-          <div class="ba-panel-title">
-            <h1 id="forums-title">板块目录</h1>
-            <span class="ba-status-pill" data-forums-status>正在加载</span>
-          </div>
-          <div class="ba-panel-body" data-forums-body>
-            <div class="ba-loading-state" role="status">正在加载板块列表...</div>
+        <section class="ba-panel" style="max-width: 480px">
+          <div class="ba-panel-title"><h1>登录</h1></div>
+          <div class="ba-panel-body">
+            <div data-form-error-holder></div>
+            <form class="ba-form" data-login-form novalidate>
+              <div class="ba-field">
+                <label for="login-username">用户名</label>
+                <input type="text" id="login-username" name="username" autocomplete="username" required>
+              </div>
+              <div class="ba-field">
+                <label for="login-password">密码</label>
+                <input type="password" id="login-password" name="password" autocomplete="current-password" required>
+              </div>
+              <div class="ba-form-actions">
+                <button type="submit" class="ba-btn ba-btn-primary" data-submit-button>登录</button>
+              </div>
+              <p class="ba-form-footnote">还没有账号? <a data-register-link href="/register">立即注册</a></p>
+            </form>
           </div>
         </section>
       </div>
@@ -44,7 +51,6 @@
     <footer class="ba-site-footer">
       <div class="ba-container ba-footer-links">
         <span>BlogAlone MVP</span>
-        <a href="/api/healthz">服务状态</a>
       </div>
     </footer>
   </div>

@@ -1,0 +1,55 @@
+/*
+ * Dialog / modal styling built on the native <dialog> element.
+ */
+.ba-dialog {
+  border: var(--ba-border-width) solid var(--ba-border-strong);
+  border-radius: var(--ba-radius);
+  padding: 0;
+  width: min(92vw, 480px);
+  background: var(--ba-surface);
+  color: var(--ba-text);
+}
+
+.ba-dialog::backdrop {
+  background: rgba(20, 24, 32, 0.45);
+}
+
+.ba-dialog-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ba-space-2);
+  background: var(--ba-header-bg);
+  border-bottom: 2px solid var(--ba-border-strong);
+  padding: 8px 10px;
+  font-weight: 700;
+}
+
+.ba-dialog-close {
+  border: var(--ba-border-width) solid var(--ba-border);
+  background: var(--ba-surface);
+  min-width: 22px;
+  min-height: 22px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.ba-dialog-body {
+  padding: var(--ba-space-3);
+}
+
+.ba-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--ba-space-2);
+  padding: var(--ba-space-2) var(--ba-space-3) var(--ba-space-3);
+}
+
+.ba-dialog-danger-text {
+  color: var(--ba-danger);
+  font-weight: 700;
+}
+
+body.ba-modal-open-lock {
+  overflow: hidden;
+}

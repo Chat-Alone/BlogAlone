@@ -105,6 +105,31 @@ class AdminRepository {
         std::int64_t offset
     ) const;
 
+    [[nodiscard]] std::int64_t count_sessions(
+        const std::optional<std::int64_t>& user_id_filter
+    ) const;
+    [[nodiscard]] std::vector<models::AdminSessionSummary> list_sessions(
+        const std::optional<std::int64_t>& user_id_filter,
+        std::int64_t limit,
+        std::int64_t offset
+    ) const;
+
+    [[nodiscard]] std::int64_t count_deleted_threads() const;
+    [[nodiscard]] std::vector<models::DeletedThreadSummary> list_deleted_threads(
+        std::int64_t limit,
+        std::int64_t offset
+    ) const;
+    [[nodiscard]] std::int64_t count_deleted_posts() const;
+    [[nodiscard]] std::vector<models::DeletedPostSummary> list_deleted_posts(
+        std::int64_t limit,
+        std::int64_t offset
+    ) const;
+    [[nodiscard]] std::int64_t count_deleted_sub_posts() const;
+    [[nodiscard]] std::vector<models::DeletedSubPostSummary> list_deleted_sub_posts(
+        std::int64_t limit,
+        std::int64_t offset
+    ) const;
+
   private:
     std::string db_client_name_;
     drogon::orm::DbClientPtr db_client_;

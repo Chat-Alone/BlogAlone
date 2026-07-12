@@ -1,0 +1,353 @@
+/*
+ * Base reset and typography for the BBS-style layout.
+ */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  min-height: 100%;
+  background: var(--ba-page-bg);
+  color: var(--ba-text);
+  font-family: var(--ba-font-family);
+  font-size: var(--ba-font-size-base);
+  line-height: var(--ba-line-height);
+  letter-spacing: var(--ba-letter-spacing);
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  min-height: 100dvh;
+  background: var(--ba-page-bg);
+}
+
+img {
+  max-width: 100%;
+}
+
+h1,
+h2,
+h3,
+p,
+ul,
+ol,
+dl,
+dd,
+figure {
+  margin: 0;
+}
+
+h1,
+h2,
+h3 {
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+h1 {
+  font-size: var(--ba-font-size-heading);
+}
+
+h2 {
+  font-size: 16px;
+}
+
+h3 {
+  font-size: var(--ba-font-size-large);
+}
+
+a {
+  color: var(--ba-link);
+  text-decoration: underline;
+}
+
+a:visited {
+  color: var(--ba-link-visited);
+}
+
+a:hover {
+  text-decoration: none;
+}
+
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--ba-focus);
+  outline-offset: 1px;
+}
+
+.skip-link {
+  position: absolute;
+  left: -999px;
+  top: 0;
+  z-index: 100;
+  background: var(--ba-surface);
+  border: var(--ba-border-width) solid var(--ba-border-strong);
+  padding: var(--ba-space-2) var(--ba-space-3);
+}
+
+.skip-link:focus {
+  left: var(--ba-space-2);
+  top: var(--ba-space-2);
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.ba-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-height: 26px;
+  padding: 3px 12px;
+  background: linear-gradient(#fefefe, #e4e9f1);
+  border: var(--ba-border-width) solid var(--ba-border-strong);
+  border-radius: var(--ba-radius);
+  color: var(--ba-text);
+  font-size: var(--ba-font-size-base);
+  font-weight: 700;
+  text-decoration: none;
+  line-height: 1.2;
+}
+
+.ba-btn:hover {
+  background: linear-gradient(#ffffff, #d8e0ee);
+}
+
+.ba-btn:active {
+  background: #ccd6e6;
+}
+
+.ba-btn:disabled {
+  background: #e9ebef;
+  color: var(--ba-text-muted);
+}
+
+.ba-btn-primary {
+  background: linear-gradient(#3f74d4, #2a56ab);
+  border-color: #1f3f80;
+  color: #ffffff;
+}
+
+.ba-btn-primary:hover {
+  background: linear-gradient(#4a7fe0, #2f5fbb);
+}
+
+.ba-btn-primary:disabled {
+  background: #96a9cf;
+  border-color: #7c8cad;
+  color: #eef1f8;
+}
+
+.ba-btn-danger {
+  background: linear-gradient(#fbecec, #f2d3d3);
+  border-color: #b56767;
+  color: var(--ba-danger);
+}
+
+.ba-btn-danger:hover {
+  background: linear-gradient(#fdf2f2, #f2c6c6);
+}
+
+.ba-btn-small {
+  min-height: 20px;
+  padding: 1px 8px;
+  font-size: var(--ba-font-size-small);
+  font-weight: 400;
+}
+
+.ba-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-bottom: var(--ba-space-3);
+}
+
+.ba-field label {
+  font-weight: 700;
+  font-size: var(--ba-font-size-small);
+}
+
+.ba-field .ba-hint {
+  color: var(--ba-text-muted);
+  font-size: var(--ba-font-size-small);
+}
+
+.ba-field input[type="text"],
+.ba-field input[type="email"],
+.ba-field input[type="password"],
+.ba-field input[type="search"],
+.ba-field input[type="datetime-local"],
+.ba-field input[type="number"],
+.ba-field textarea,
+.ba-field select {
+  border: var(--ba-border-width) solid var(--ba-border-strong);
+  border-radius: var(--ba-radius);
+  background: var(--ba-surface);
+  padding: 5px 6px;
+  min-height: 26px;
+}
+
+.ba-field textarea {
+  min-height: 120px;
+  resize: vertical;
+  font-family: var(--ba-font-family);
+}
+
+.ba-field-error {
+  color: var(--ba-danger);
+  font-size: var(--ba-font-size-small);
+}
+
+.ba-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: var(--ba-border-width) solid var(--ba-border);
+  border-radius: var(--ba-radius);
+  background: var(--ba-surface-alt);
+  color: var(--ba-text-muted);
+  padding: 1px 8px;
+  font-size: var(--ba-font-size-small);
+  font-weight: 700;
+}
+
+.ba-tag {
+  display: inline-flex;
+  align-items: center;
+  border: var(--ba-border-width) solid;
+  border-radius: var(--ba-radius);
+  padding: 0 5px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.5;
+}
+
+.ba-tag-pinned {
+  background: var(--ba-accent-bg);
+  border-color: var(--ba-accent-border);
+  color: #7a5b12;
+}
+
+.ba-tag-featured {
+  background: var(--ba-danger-bg);
+  border-color: #c98f8f;
+  color: var(--ba-danger);
+}
+
+.ba-empty-state,
+.ba-error-state {
+  border: 1px dashed var(--ba-border);
+  border-radius: var(--ba-radius);
+  background: var(--ba-surface-alt);
+  color: var(--ba-text-muted);
+  padding: var(--ba-space-4);
+  text-align: center;
+}
+
+.ba-error-state {
+  border-style: solid;
+  border-color: #c98f8f;
+  background: var(--ba-danger-bg);
+  color: var(--ba-danger);
+}
+
+.ba-error-state .ba-btn {
+  margin-top: var(--ba-space-2);
+}
+
+.ba-loading-state {
+  color: var(--ba-text-muted);
+  padding: var(--ba-space-3);
+}
+
+.ba-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.ba-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--ba-font-size-base);
+}
+
+.ba-table caption {
+  text-align: left;
+  font-weight: 700;
+  padding-bottom: var(--ba-space-2);
+}
+
+.ba-table th,
+.ba-table td {
+  border: var(--ba-border-width) solid var(--ba-border);
+  padding: 6px 8px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.ba-table thead th {
+  background: var(--ba-header-bg);
+  font-size: var(--ba-font-size-small);
+}
+
+.ba-table tbody tr:nth-child(even) {
+  background: var(--ba-stripe-bg);
+}
+
+.ba-table tbody tr:hover {
+  background: #e7edf8;
+}
+
+.ba-table-wrap {
+  overflow-x: auto;
+  border: var(--ba-border-width) solid var(--ba-border);
+}
+
+.ba-table-wrap .ba-table {
+  border: none;
+}
+
+.ba-table-wrap .ba-table th:first-child,
+.ba-table-wrap .ba-table td:first-child {
+  border-left: none;
+}
+
+.ba-table-wrap .ba-table th:last-child,
+.ba-table-wrap .ba-table td:last-child {
+  border-right: none;
+}
+
+@media (min-width: 1024px) {
+  html {
+    font-size: var(--ba-font-size-base);
+  }
+}

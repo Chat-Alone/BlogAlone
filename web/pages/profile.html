@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>个人资料 - BlogAlone</title>
+  <link rel="stylesheet" href="/static/css/tokens.css">
+  <link rel="stylesheet" href="/static/css/base.css">
+  <link rel="stylesheet" href="/static/css/layout.css">
+  <link rel="stylesheet" href="/static/css/forms.css">
+  <link rel="stylesheet" href="/static/css/modal.css">
+  <script type="module" src="/static/js/site-chrome.js"></script>
+  <script type="module" src="/static/js/page-profile.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">跳转到主内容</a>
+  <div class="ba-shell">
+    <header class="ba-site-header">
+      <div class="ba-container ba-site-header-inner">
+        <a class="ba-brand" href="/">BlogAlone</a>
+        <nav class="ba-primary-nav" aria-label="主导航">
+          <a href="/">首页</a>
+        </nav>
+        <div class="ba-session-box" data-session-box aria-label="账户"></div>
+      </div>
+    </header>
+    <main id="main" class="ba-main" tabindex="-1">
+      <div class="ba-container">
+        <section class="ba-panel" style="max-width: 560px">
+          <div class="ba-panel-title"><h1>个人资料</h1></div>
+          <div class="ba-panel-body">
+            <div data-form-error-holder></div>
+            <div data-form-notice-holder></div>
+            <div data-profile-loading class="ba-loading-state" role="status">正在加载资料...</div>
+            <form class="ba-form" data-profile-form novalidate hidden>
+              <div class="ba-field">
+                <label for="profile-username">用户名</label>
+                <input type="text" id="profile-username" disabled>
+              </div>
+              <div class="ba-field">
+                <label>头像</label>
+                <div class="ba-avatar-row">
+                  <img class="ba-avatar-preview" data-avatar-preview alt="头像预览">
+                  <input type="file" accept="image/jpeg,image/png,image/gif,image/webp" data-avatar-input>
+                </div>
+                <span class="ba-upload-status" data-avatar-status role="status"></span>
+              </div>
+              <div class="ba-field">
+                <label for="profile-email">邮箱</label>
+                <input type="email" id="profile-email" name="email" maxlength="254">
+                <span class="ba-hint">留空则不修改当前邮箱</span>
+              </div>
+              <div class="ba-form-actions">
+                <button type="submit" class="ba-btn ba-btn-primary" data-submit-button>保存修改</button>
+              </div>
+            </form>
+          </div>
+        </section>
+      </div>
+    </main>
+    <footer class="ba-site-footer">
+      <div class="ba-container ba-footer-links">
+        <span>BlogAlone MVP</span>
+      </div>
+    </footer>
+  </div>
+</body>
+</html>

@@ -119,6 +119,23 @@ class AdminService {
         std::int64_t admin_id,
         AdminPaginationRequest pagination
     ) const;
+    [[nodiscard]] AdminResult<AdminPage<models::AdminSessionSummary>> list_sessions(
+        std::int64_t admin_id,
+        const std::optional<std::int64_t>& user_id_filter,
+        AdminPaginationRequest pagination
+    ) const;
+    [[nodiscard]] AdminResult<AdminPage<models::DeletedThreadSummary>> list_deleted_threads(
+        std::int64_t admin_id,
+        AdminPaginationRequest pagination
+    ) const;
+    [[nodiscard]] AdminResult<AdminPage<models::DeletedPostSummary>> list_deleted_posts(
+        std::int64_t admin_id,
+        AdminPaginationRequest pagination
+    ) const;
+    [[nodiscard]] AdminResult<AdminPage<models::DeletedSubPostSummary>> list_deleted_sub_posts(
+        std::int64_t admin_id,
+        AdminPaginationRequest pagination
+    ) const;
 
     [[nodiscard]] AdminResult<ReauthResult> reauth(
         std::int64_t admin_id,

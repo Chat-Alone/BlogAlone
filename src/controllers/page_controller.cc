@@ -83,6 +83,22 @@ void register_page_routes()
     );
 
     drogon::app().registerHandler(
+        "/forums/{1}",
+        [](const drogon::HttpRequestPtr& request,
+           std::function<void(const drogon::HttpResponsePtr&)>&& callback,
+           std::string) {
+            const auto& app_config = config::app_config_from_drogon();
+            send_static_file(
+                request,
+                callback,
+                app_config.web_root / "pages",
+                "forum.html"
+            );
+        },
+        {drogon::Get}
+    );
+
+    drogon::app().registerHandler(
         "/threads/{1}",
         [](const drogon::HttpRequestPtr& request,
            std::function<void(const drogon::HttpResponsePtr&)>&& callback,
@@ -94,6 +110,56 @@ void register_page_routes()
                 app_config.web_root / "pages",
                 "thread.html"
             );
+        },
+        {drogon::Get}
+    );
+
+    drogon::app().registerHandler(
+        "/login",
+        [](const drogon::HttpRequestPtr& request,
+           std::function<void(const drogon::HttpResponsePtr&)>&& callback) {
+            const auto& app_config = config::app_config_from_drogon();
+            send_static_file(request, callback, app_config.web_root / "pages", "login.html");
+        },
+        {drogon::Get}
+    );
+
+    drogon::app().registerHandler(
+        "/register",
+        [](const drogon::HttpRequestPtr& request,
+           std::function<void(const drogon::HttpResponsePtr&)>&& callback) {
+            const auto& app_config = config::app_config_from_drogon();
+            send_static_file(request, callback, app_config.web_root / "pages", "register.html");
+        },
+        {drogon::Get}
+    );
+
+    drogon::app().registerHandler(
+        "/compose",
+        [](const drogon::HttpRequestPtr& request,
+           std::function<void(const drogon::HttpResponsePtr&)>&& callback) {
+            const auto& app_config = config::app_config_from_drogon();
+            send_static_file(request, callback, app_config.web_root / "pages", "compose.html");
+        },
+        {drogon::Get}
+    );
+
+    drogon::app().registerHandler(
+        "/profile",
+        [](const drogon::HttpRequestPtr& request,
+           std::function<void(const drogon::HttpResponsePtr&)>&& callback) {
+            const auto& app_config = config::app_config_from_drogon();
+            send_static_file(request, callback, app_config.web_root / "pages", "profile.html");
+        },
+        {drogon::Get}
+    );
+
+    drogon::app().registerHandler(
+        "/admin",
+        [](const drogon::HttpRequestPtr& request,
+           std::function<void(const drogon::HttpResponsePtr&)>&& callback) {
+            const auto& app_config = config::app_config_from_drogon();
+            send_static_file(request, callback, app_config.web_root / "pages", "admin.html");
         },
         {drogon::Get}
     );

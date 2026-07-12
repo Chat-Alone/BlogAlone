@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>注册 - BlogAlone</title>
+  <link rel="stylesheet" href="/static/css/tokens.css">
+  <link rel="stylesheet" href="/static/css/base.css">
+  <link rel="stylesheet" href="/static/css/layout.css">
+  <link rel="stylesheet" href="/static/css/forms.css">
+  <link rel="stylesheet" href="/static/css/modal.css">
+  <script type="module" src="/static/js/site-chrome.js"></script>
+  <script type="module" src="/static/js/page-register.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">跳转到主内容</a>
+  <div class="ba-shell">
+    <header class="ba-site-header">
+      <div class="ba-container ba-site-header-inner">
+        <a class="ba-brand" href="/">BlogAlone</a>
+        <nav class="ba-primary-nav" aria-label="主导航">
+          <a href="/">首页</a>
+        </nav>
+        <div class="ba-session-box" data-session-box aria-label="账户"></div>
+      </div>
+    </header>
+    <main id="main" class="ba-main" tabindex="-1">
+      <div class="ba-container">
+        <section class="ba-panel" style="max-width: 480px">
+          <div class="ba-panel-title"><h1>注册</h1></div>
+          <div class="ba-panel-body">
+            <div data-form-error-holder></div>
+            <form class="ba-form" data-register-form novalidate>
+              <div class="ba-field">
+                <label for="register-username">用户名</label>
+                <input type="text" id="register-username" name="username" autocomplete="username" minlength="3" maxlength="32" required>
+                <span class="ba-hint">3-32个字符,支持中文、字母、数字和下划线</span>
+              </div>
+              <div class="ba-field">
+                <label for="register-email">邮箱(可选)</label>
+                <input type="email" id="register-email" name="email" autocomplete="email" maxlength="254">
+              </div>
+              <div class="ba-field">
+                <label for="register-password">密码</label>
+                <input type="password" id="register-password" name="password" autocomplete="new-password" minlength="8" maxlength="128" required>
+                <span class="ba-hint">8-128个字符</span>
+              </div>
+              <div class="ba-field">
+                <label for="register-password-confirm">确认密码</label>
+                <input type="password" id="register-password-confirm" name="passwordConfirm" autocomplete="new-password" required>
+              </div>
+              <div class="ba-form-actions">
+                <button type="submit" class="ba-btn ba-btn-primary" data-submit-button>注册</button>
+              </div>
+              <p class="ba-form-footnote">已有账号? <a data-login-link href="/login">立即登录</a></p>
+            </form>
+          </div>
+        </section>
+      </div>
+    </main>
+    <footer class="ba-site-footer">
+      <div class="ba-container ba-footer-links">
+        <span>BlogAlone MVP</span>
+      </div>
+    </footer>
+  </div>
+</body>
+</html>

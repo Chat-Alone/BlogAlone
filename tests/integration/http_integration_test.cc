@@ -308,7 +308,7 @@ TEST(HttpIntegrationTest, ServesPagesStaticResourcesAndJsonErrors)
     expect_ok(thread_page);
     EXPECT_EQ(thread_page.response->statusCode(), drogon::k200OK);
 
-    const auto stylesheet = server->send(request_for(drogon::Get, "/static/css/retro.css"));
+    const auto stylesheet = server->send(request_for(drogon::Get, "/static/css/base.css"));
     expect_ok(stylesheet);
     EXPECT_EQ(stylesheet.response->statusCode(), drogon::k200OK);
     EXPECT_TRUE(stylesheet.response->contentTypeString().starts_with("text/css"));
@@ -633,6 +633,191 @@ TEST(HttpIntegrationTest, EnforcesAdminRoleAndPersistsPrivilegedActions)
         target.user_id
     );
     EXPECT_EQ(audit_rows.size(), 1);
+}
+
+TEST(HttpIntegrationTest, ListsAdminSessionsAndDeletedContentThenReflectsRestore)
+{
+    const auto admin = register_user(
+        "sessions_admin",
+        "sessions_admin@example.com",
+        "correct-horse-battery-staple"
+    );
+    const auto author = register_user(
+        "sessions_author",
+        "sessions_author@example.com",
+        "correct-horse-battery-staple"
+    );
+    drogon::app().getDbClient()->execSqlSync(
+        "UPDATE users SET role = 'admin' WHERE id = ?",
+        admin.user_id
+    );
+
+    // Non-admins are rejected on every new read-only management route.
+    auto forbidden_sessions = request_for(drogon::Get, "/api/admin/sessions");
+    add_auth(forbidden_sessions, author.session_token, author.csrf_token);
+    const auto forbidden_sessions_result = server->send(forbidden_sessions);
+    expect_ok(forbidden_sessions_result);
+    EXPECT_EQ(forbidden_sessions_result.response->statusCode(), drogon::k403Forbidden);
+
+    auto forbidden_deleted = request_for(drogon::Get, "/api/admin/deleted/threads");
+    add_auth(forbidden_deleted, author.session_token, author.csrf_token);
+    const auto forbidden_deleted_result = server->send(forbidden_deleted);
+    expect_ok(forbidden_deleted_result);
+    EXPECT_EQ(forbidden_deleted_result.response->statusCode(), drogon::k403Forbidden);
+
+    // Session listing surfaces both accounts' sessions without leaking tokens.
+    auto sessions_request = request_for(drogon::Get, "/api/admin/sessions?page=1&page_size=20");
+    add_auth(sessions_request, admin.session_token, admin.csrf_token);
+    const auto sessions_result = server->send(sessions_request);
+    expect_ok(sessions_result);
+    ASSERT_EQ(sessions_result.response->statusCode(), drogon::k200OK);
+    const auto& sessions_body = json_body(sessions_result.response);
+    EXPECT_GE(sessions_body["total"].asInt64(), 2);
+    for(const auto& item : sessions_body["items"]) {
+        EXPECT_FALSE(item["token_hash"].asString().empty());
+        EXPECT_FALSE(item.isMember("token"));
+    }
+
+    auto filtered_sessions = request_for(
+        drogon::Get,
+        "/api/admin/sessions?user_id=" + std::to_string(author.user_id)
+    );
+    add_auth(filtered_sessions, admin.session_token, admin.csrf_token);
+    const auto filtered_sessions_result = server->send(filtered_sessions);
+    expect_ok(filtered_sessions_result);
+    ASSERT_EQ(filtered_sessions_result.response->statusCode(), drogon::k200OK);
+    const auto& filtered_sessions_body = json_body(filtered_sessions_result.response);
+    ASSERT_EQ(filtered_sessions_body["items"].size(), 1);
+    EXPECT_EQ(filtered_sessions_body["items"][0]["username"].asString(), "sessions_author");
+
+    // Deleted-content listings start empty, then reveal soft-deleted items with context.
+    drogon::app().getDbClient()->execSqlSync(
+        "INSERT INTO forums (slug, name, description, sort_order, created_at, updated_at) "
+        "VALUES ('deleted-listing', 'Deleted Listing', '', 0, 1, 1)"
+    );
+    Json::Value thread_body;
+    thread_body["forum_slug"] = "deleted-listing";
+    thread_body["title"] = "Thread pending deletion";
+    thread_body["body_md"] = "original body";
+    const auto thread_created = server->send(authenticated_json_request(
+        drogon::Post,
+        "/api/threads",
+        std::move(thread_body),
+        author
+    ));
+    expect_ok(thread_created);
+    ASSERT_EQ(thread_created.response->statusCode(), drogon::k201Created);
+    const auto thread_id = json_body(thread_created.response)["thread"]["id"].asInt64();
+
+    Json::Value post_body;
+    post_body["body_md"] = "reply pending deletion";
+    const auto post_created = server->send(authenticated_json_request(
+        drogon::Post,
+        "/api/threads/" + std::to_string(thread_id) + "/posts",
+        std::move(post_body),
+        author
+    ));
+    expect_ok(post_created);
+    ASSERT_EQ(post_created.response->statusCode(), drogon::k201Created);
+    const auto post_id = json_body(post_created.response)["post"]["id"].asInt64();
+
+    Json::Value sub_post_body;
+    sub_post_body["body_md"] = "nested reply pending deletion";
+    const auto sub_post_created = server->send(authenticated_json_request(
+        drogon::Post,
+        "/api/posts/" + std::to_string(post_id) + "/sub_posts",
+        std::move(sub_post_body),
+        author
+    ));
+    expect_ok(sub_post_created);
+    ASSERT_EQ(sub_post_created.response->statusCode(), drogon::k201Created);
+    const auto sub_post_id = json_body(sub_post_created.response)["sub_post"]["id"].asInt64();
+
+    auto empty_deleted_threads = request_for(drogon::Get, "/api/admin/deleted/threads");
+    add_auth(empty_deleted_threads, admin.session_token, admin.csrf_token);
+    const auto empty_deleted_threads_result = server->send(empty_deleted_threads);
+    expect_ok(empty_deleted_threads_result);
+    EXPECT_EQ(json_body(empty_deleted_threads_result.response)["total"].asInt64(), 0);
+
+    Json::Value delete_flag;
+    delete_flag["is_deleted"] = true;
+    const auto thread_deleted = server->send(authenticated_json_request(
+        drogon::Patch,
+        "/api/admin/threads/" + std::to_string(thread_id) + "/delete",
+        delete_flag,
+        admin
+    ));
+    expect_ok(thread_deleted);
+    ASSERT_EQ(thread_deleted.response->statusCode(), drogon::k200OK);
+    const auto post_deleted = server->send(authenticated_json_request(
+        drogon::Patch,
+        "/api/admin/posts/" + std::to_string(post_id) + "/delete",
+        delete_flag,
+        admin
+    ));
+    expect_ok(post_deleted);
+    ASSERT_EQ(post_deleted.response->statusCode(), drogon::k200OK);
+    const auto sub_post_deleted = server->send(authenticated_json_request(
+        drogon::Patch,
+        "/api/admin/sub_posts/" + std::to_string(sub_post_id) + "/delete",
+        delete_flag,
+        admin
+    ));
+    expect_ok(sub_post_deleted);
+    ASSERT_EQ(sub_post_deleted.response->statusCode(), drogon::k200OK);
+
+    auto deleted_threads_request = request_for(drogon::Get, "/api/admin/deleted/threads");
+    add_auth(deleted_threads_request, admin.session_token, admin.csrf_token);
+    const auto deleted_threads_result = server->send(deleted_threads_request);
+    expect_ok(deleted_threads_result);
+    ASSERT_EQ(deleted_threads_result.response->statusCode(), drogon::k200OK);
+    const auto& deleted_threads_body = json_body(deleted_threads_result.response);
+    ASSERT_EQ(deleted_threads_body["items"].size(), 1);
+    EXPECT_EQ(deleted_threads_body["items"][0]["title"].asString(), "Thread pending deletion");
+    EXPECT_EQ(deleted_threads_body["items"][0]["forum"]["slug"].asString(), "deleted-listing");
+    EXPECT_EQ(deleted_threads_body["items"][0]["deleted_by"]["username"].asString(), "sessions_admin");
+
+    auto deleted_posts_request = request_for(drogon::Get, "/api/admin/deleted/posts");
+    add_auth(deleted_posts_request, admin.session_token, admin.csrf_token);
+    const auto deleted_posts_result = server->send(deleted_posts_request);
+    expect_ok(deleted_posts_result);
+    const auto& deleted_posts_body = json_body(deleted_posts_result.response);
+    ASSERT_EQ(deleted_posts_body["items"].size(), 1);
+    EXPECT_EQ(deleted_posts_body["items"][0]["floor_no"].asInt64(), 1);
+
+    auto deleted_sub_posts_request = request_for(drogon::Get, "/api/admin/deleted/sub_posts");
+    add_auth(deleted_sub_posts_request, admin.session_token, admin.csrf_token);
+    const auto deleted_sub_posts_result = server->send(deleted_sub_posts_request);
+    expect_ok(deleted_sub_posts_result);
+    const auto& deleted_sub_posts_body = json_body(deleted_sub_posts_result.response);
+    ASSERT_EQ(deleted_sub_posts_body["items"].size(), 1);
+    EXPECT_EQ(deleted_sub_posts_body["items"][0]["thread_title"].asString(), "Thread pending deletion");
+
+    // Restoring the thread removes it from the deleted-content listing again.
+    Json::Value restore_flag;
+    restore_flag["is_deleted"] = false;
+    const auto thread_restored = server->send(authenticated_json_request(
+        drogon::Patch,
+        "/api/admin/threads/" + std::to_string(thread_id) + "/delete",
+        restore_flag,
+        admin
+    ));
+    expect_ok(thread_restored);
+    ASSERT_EQ(thread_restored.response->statusCode(), drogon::k200OK);
+
+    auto after_restore_request = request_for(drogon::Get, "/api/admin/deleted/threads");
+    add_auth(after_restore_request, admin.session_token, admin.csrf_token);
+    const auto after_restore_result = server->send(after_restore_request);
+    expect_ok(after_restore_result);
+    EXPECT_EQ(json_body(after_restore_result.response)["total"].asInt64(), 0);
+
+    // Invalid pagination is rejected the same way as the other admin list routes.
+    auto invalid_pagination = request_for(drogon::Get, "/api/admin/sessions?page=0");
+    add_auth(invalid_pagination, admin.session_token, admin.csrf_token);
+    const auto invalid_pagination_result = server->send(invalid_pagination);
+    expect_ok(invalid_pagination_result);
+    ASSERT_EQ(invalid_pagination_result.response->statusCode(), drogon::k400BadRequest);
+    EXPECT_EQ(json_body(invalid_pagination_result.response)["error"]["code"].asString(), "invalid_argument");
 }
 
 }

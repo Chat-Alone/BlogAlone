@@ -355,6 +355,117 @@ TEST_F(AdminServiceTest, ListsUsersByRoleWithPagination)
     EXPECT_EQ(page->items.at(0).username, "list_user_two");
 }
 
+TEST_F(AdminServiceTest, ListsSessionsWithOptionalUserFilterAndPagination)
+{
+    const auto admin_id = insert_user("session_list_admin", blogalone::models::UserRole::admin);
+    const auto user_one = insert_user("session_list_user_one");
+    const auto user_two = insert_user("session_list_user_two");
+    static_cast<void>(insert_session(user_one, "session-one"));
+    static_cast<void>(insert_session(user_two, "session-two"));
+
+    const auto all_sessions = service_.list_sessions(
+        admin_id,
+        std::nullopt,
+        blogalone::services::AdminPaginationRequest{.page = 1, .page_size = 20}
+    );
+    ASSERT_TRUE(all_sessions.has_value());
+    EXPECT_EQ(all_sessions->total, 2);
+
+    const auto filtered = service_.list_sessions(
+        admin_id,
+        user_two,
+        blogalone::services::AdminPaginationRequest{.page = 1, .page_size = 20}
+    );
+    ASSERT_TRUE(filtered.has_value());
+    ASSERT_EQ(filtered->items.size(), 1);
+    EXPECT_EQ(filtered->items.at(0).username, "session_list_user_two");
+    EXPECT_EQ(filtered->items.at(0).user_id, user_two);
+
+    const auto forbidden = service_.list_sessions(
+        user_one,
+        std::nullopt,
+        blogalone::services::AdminPaginationRequest{.page = 1, .page_size = 20}
+    );
+    ASSERT_FALSE(forbidden.has_value());
+    EXPECT_EQ(forbidden.error(), blogalone::services::AdminError::forbidden);
+}
+
+TEST_F(AdminServiceTest, ListsDeletedContentAcrossThreadsPostsAndSubPostsEmptyByDefault)
+{
+    const auto admin_id = insert_user("deleted_list_admin", blogalone::models::UserRole::admin);
+    const auto author_id = insert_user("deleted_list_author");
+    const auto forum_id = insert_forum();
+    const auto thread_rows = client_->execSqlSync(
+        "INSERT INTO threads (forum_id, author_id, title, body_md, body_html, created_at, updated_at) "
+        "VALUES (?, ?, 'Deleted thread', 'Body text', '<p>Body text</p>', 10, 10) RETURNING id",
+        forum_id,
+        author_id
+    );
+    const auto thread_id = thread_rows.at(0)["id"].as<std::int64_t>();
+    const auto post_rows = client_->execSqlSync(
+        "INSERT INTO posts (thread_id, author_id, floor_no, body_md, body_html, created_at, updated_at) "
+        "VALUES (?, ?, 1, 'Reply text', '<p>Reply text</p>', 20, 20) RETURNING id",
+        thread_id,
+        author_id
+    );
+    const auto post_id = post_rows.at(0)["id"].as<std::int64_t>();
+    const auto sub_post_rows = client_->execSqlSync(
+        "INSERT INTO sub_posts (post_id, author_id, body_md, body_html, created_at, updated_at) "
+        "VALUES (?, ?, 'Nested text', '<p>Nested text</p>', 30, 30) RETURNING id",
+        post_id,
+        author_id
+    );
+    const auto sub_post_id = sub_post_rows.at(0)["id"].as<std::int64_t>();
+
+    const auto empty_threads = service_.list_deleted_threads(
+        admin_id,
+        blogalone::services::AdminPaginationRequest{.page = 1, .page_size = 20}
+    );
+    ASSERT_TRUE(empty_threads.has_value());
+    EXPECT_EQ(empty_threads->total, 0);
+
+    ASSERT_TRUE(service_.set_thread_deleted(admin_id, thread_id, true, 100).has_value());
+    ASSERT_TRUE(service_.set_post_deleted(admin_id, post_id, true, 101).has_value());
+    ASSERT_TRUE(service_.set_sub_post_deleted(admin_id, sub_post_id, true, 102).has_value());
+
+    const auto deleted_threads = service_.list_deleted_threads(
+        admin_id,
+        blogalone::services::AdminPaginationRequest{.page = 1, .page_size = 20}
+    );
+    ASSERT_TRUE(deleted_threads.has_value());
+    ASSERT_EQ(deleted_threads->items.size(), 1);
+    EXPECT_EQ(deleted_threads->items.at(0).title, "Deleted thread");
+    EXPECT_EQ(deleted_threads->items.at(0).author_username, "deleted_list_author");
+    EXPECT_EQ(deleted_threads->items.at(0).deleted_by, std::optional<std::int64_t>{admin_id});
+    EXPECT_EQ(deleted_threads->items.at(0).deleted_at, 100);
+
+    const auto deleted_posts = service_.list_deleted_posts(
+        admin_id,
+        blogalone::services::AdminPaginationRequest{.page = 1, .page_size = 20}
+    );
+    ASSERT_TRUE(deleted_posts.has_value());
+    ASSERT_EQ(deleted_posts->items.size(), 1);
+    EXPECT_EQ(deleted_posts->items.at(0).thread_title, "Deleted thread");
+    EXPECT_EQ(deleted_posts->items.at(0).floor_no, 1);
+
+    const auto deleted_sub_posts = service_.list_deleted_sub_posts(
+        admin_id,
+        blogalone::services::AdminPaginationRequest{.page = 1, .page_size = 20}
+    );
+    ASSERT_TRUE(deleted_sub_posts.has_value());
+    ASSERT_EQ(deleted_sub_posts->items.size(), 1);
+    EXPECT_EQ(deleted_sub_posts->items.at(0).thread_title, "Deleted thread");
+
+    // Restoring removes the item from every deleted-content listing again.
+    ASSERT_TRUE(service_.set_thread_deleted(admin_id, thread_id, false, 110).has_value());
+    const auto restored_threads = service_.list_deleted_threads(
+        admin_id,
+        blogalone::services::AdminPaginationRequest{.page = 1, .page_size = 20}
+    );
+    ASSERT_TRUE(restored_threads.has_value());
+    EXPECT_EQ(restored_threads->total, 0);
+}
+
 TEST(RequireAdminFilterTest, RejectsUsersAndAcceptsAdmins)
 {
     blogalone::filters::RequireAdminFilter filter;

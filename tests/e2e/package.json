@@ -1,0 +1,13 @@
+{
+  "name": "blogalone-e2e",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Playwright browser tests for BlogAlone. Dev-only tooling: not part of the production build or the Drogon backend.",
+  "scripts": {
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.12.1",
+    "@playwright/test": "^1.61.1"
+  }
+}

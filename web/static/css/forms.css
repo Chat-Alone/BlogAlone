@@ -1,0 +1,166 @@
+/*
+ * Forms, auth pages, and the Markdown editor toolbar.
+ */
+.ba-form {
+  max-width: 520px;
+}
+
+.ba-form-wide {
+  max-width: none;
+}
+
+.ba-form-actions {
+  display: flex;
+  gap: var(--ba-space-2);
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: var(--ba-space-3);
+}
+
+.ba-form-footnote {
+  margin-top: var(--ba-space-3);
+  font-size: var(--ba-font-size-small);
+  color: var(--ba-text-muted);
+}
+
+.ba-inline-error {
+  border: var(--ba-border-width) solid #c98f8f;
+  background: var(--ba-danger-bg);
+  color: var(--ba-danger);
+  padding: 6px 8px;
+  margin-bottom: var(--ba-space-3);
+  font-size: var(--ba-font-size-small);
+}
+
+.ba-inline-notice {
+  border: var(--ba-border-width) solid var(--ba-accent-border);
+  background: var(--ba-accent-bg);
+  padding: 6px 8px;
+  margin-bottom: var(--ba-space-3);
+  font-size: var(--ba-font-size-small);
+}
+
+.ba-avatar-row {
+  display: flex;
+  align-items: center;
+  gap: var(--ba-space-3);
+  margin-bottom: var(--ba-space-3);
+}
+
+.ba-avatar-preview {
+  width: 56px;
+  height: 56px;
+  border: var(--ba-border-width) solid var(--ba-border);
+  object-fit: cover;
+  background: var(--ba-surface-alt);
+}
+
+/* Markdown editor */
+.ba-editor {
+  border: var(--ba-border-width) solid var(--ba-border-strong);
+  background: var(--ba-surface);
+}
+
+.ba-editor-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  border-bottom: var(--ba-border-width) solid var(--ba-border);
+  background: var(--ba-surface-alt);
+  padding: 4px;
+}
+
+.ba-editor-toolbar button {
+  min-width: 26px;
+  min-height: 24px;
+  border: var(--ba-border-width) solid var(--ba-border);
+  border-radius: var(--ba-radius);
+  background: var(--ba-surface);
+  font-size: var(--ba-font-size-small);
+  font-weight: 700;
+}
+
+.ba-editor-toolbar button:hover {
+  background: var(--ba-stripe-bg);
+}
+
+.ba-editor-textarea {
+  display: block;
+  width: 100%;
+  min-height: 220px;
+  border: none;
+  padding: var(--ba-space-2);
+  font-family: var(--ba-font-family);
+  font-size: var(--ba-font-size-base);
+  resize: vertical;
+}
+
+.ba-editor-textarea:focus-visible {
+  outline: 2px solid var(--ba-focus);
+  outline-offset: -2px;
+}
+
+.ba-editor-dropzone {
+  border: 1px dashed transparent;
+  transition: border-color var(--ba-motion-duration, 0ms) ease;
+}
+
+.ba-editor-dropzone.ba-dropzone-active {
+  border-color: var(--ba-link);
+  background: var(--ba-surface-alt);
+}
+
+.ba-editor-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--ba-space-2);
+  border-top: var(--ba-border-width) solid var(--ba-border);
+  background: var(--ba-surface-alt);
+  padding: 4px 8px;
+  font-size: var(--ba-font-size-small);
+  flex-wrap: wrap;
+}
+
+.ba-char-count {
+  color: var(--ba-text-muted);
+}
+
+.ba-char-count.ba-char-count-over {
+  color: var(--ba-danger);
+  font-weight: 700;
+}
+
+.ba-upload-status {
+  color: var(--ba-text-muted);
+}
+
+.ba-upload-status.ba-upload-status-error {
+  color: var(--ba-danger);
+}
+
+.ba-draft-note {
+  color: var(--ba-text-muted);
+  font-size: var(--ba-font-size-small);
+  margin-top: 4px;
+}
+
+.ba-checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--ba-font-size-small);
+}
+
+.ba-radio-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ba-space-3);
+  font-size: var(--ba-font-size-small);
+}
+
+.ba-radio-group label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}

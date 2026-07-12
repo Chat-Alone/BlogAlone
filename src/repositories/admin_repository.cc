@@ -1,5 +1,7 @@
 #include "repositories/admin_repository.h"
 
+#include "util/text.h"
+
 #include <drogon/drogon.h>
 
 #include <utility>
@@ -10,6 +12,8 @@ namespace {
 constexpr std::string_view kUserColumns{
     "id, username, email, pwd_hash, role, banned_until, created_at, updated_at, avatar_url"
 };
+
+constexpr std::size_t kDeletedContentExcerptBytes = 200;
 
 [[nodiscard]] models::Forum row_to_forum(const drogon::orm::Row& row)
 {
@@ -57,6 +61,97 @@ constexpr std::string_view kUserColumns{
         .target_id = row["target_id"].as<std::int64_t>(),
         .detail = row["detail"].as<std::string>(),
         .created_at = row["created_at"].as<std::int64_t>()
+    };
+}
+
+[[nodiscard]] models::AdminSessionSummary row_to_session_summary(const drogon::orm::Row& row)
+{
+    return models::AdminSessionSummary{
+        .token_hash = row["token_hash"].as<std::string>(),
+        .user_id = row["user_id"].as<std::int64_t>(),
+        .username = row["username"].as<std::string>(),
+        .created_at = row["created_at"].as<std::int64_t>(),
+        .expires_at = row["expires_at"].as<std::int64_t>(),
+        .revoked_at = row["revoked_at"].isNull()
+            ? std::nullopt
+            : std::optional{row["revoked_at"].as<std::int64_t>()},
+        .admin_confirmed_at = row["admin_confirmed_at"].isNull()
+            ? std::nullopt
+            : std::optional{row["admin_confirmed_at"].as<std::int64_t>()},
+        .ip = row["ip"].as<std::string>(),
+        .user_agent = row["user_agent"].as<std::string>()
+    };
+}
+
+[[nodiscard]] std::optional<std::int64_t> row_deleted_by(const drogon::orm::Row& row)
+{
+    return row["deleted_by"].isNull()
+        ? std::nullopt
+        : std::optional{row["deleted_by"].as<std::int64_t>()};
+}
+
+[[nodiscard]] std::optional<std::string> row_deleted_by_username(const drogon::orm::Row& row)
+{
+    return row["deleted_by_username"].isNull()
+        ? std::nullopt
+        : std::optional{row["deleted_by_username"].as<std::string>()};
+}
+
+[[nodiscard]] models::DeletedThreadSummary row_to_deleted_thread(const drogon::orm::Row& row)
+{
+    return models::DeletedThreadSummary{
+        .id = row["id"].as<std::int64_t>(),
+        .forum_id = row["forum_id"].as<std::int64_t>(),
+        .forum_slug = row["forum_slug"].as<std::string>(),
+        .forum_name = row["forum_name"].as<std::string>(),
+        .author_id = row["author_id"].as<std::int64_t>(),
+        .author_username = row["author_username"].as<std::string>(),
+        .title = row["title"].as<std::string>(),
+        .body_excerpt = util::truncate_utf8_excerpt(
+            row["body_md"].as<std::string>(),
+            kDeletedContentExcerptBytes
+        ),
+        .deleted_by = row_deleted_by(row),
+        .deleted_by_username = row_deleted_by_username(row),
+        .deleted_at = row["deleted_at"].as<std::int64_t>()
+    };
+}
+
+[[nodiscard]] models::DeletedPostSummary row_to_deleted_post(const drogon::orm::Row& row)
+{
+    return models::DeletedPostSummary{
+        .id = row["id"].as<std::int64_t>(),
+        .thread_id = row["thread_id"].as<std::int64_t>(),
+        .thread_title = row["thread_title"].as<std::string>(),
+        .author_id = row["author_id"].as<std::int64_t>(),
+        .author_username = row["author_username"].as<std::string>(),
+        .floor_no = row["floor_no"].as<std::int64_t>(),
+        .body_excerpt = util::truncate_utf8_excerpt(
+            row["body_md"].as<std::string>(),
+            kDeletedContentExcerptBytes
+        ),
+        .deleted_by = row_deleted_by(row),
+        .deleted_by_username = row_deleted_by_username(row),
+        .deleted_at = row["deleted_at"].as<std::int64_t>()
+    };
+}
+
+[[nodiscard]] models::DeletedSubPostSummary row_to_deleted_sub_post(const drogon::orm::Row& row)
+{
+    return models::DeletedSubPostSummary{
+        .id = row["id"].as<std::int64_t>(),
+        .post_id = row["post_id"].as<std::int64_t>(),
+        .thread_id = row["thread_id"].as<std::int64_t>(),
+        .thread_title = row["thread_title"].as<std::string>(),
+        .author_id = row["author_id"].as<std::int64_t>(),
+        .author_username = row["author_username"].as<std::string>(),
+        .body_excerpt = util::truncate_utf8_excerpt(
+            row["body_md"].as<std::string>(),
+            kDeletedContentExcerptBytes
+        ),
+        .deleted_by = row_deleted_by(row),
+        .deleted_by_username = row_deleted_by_username(row),
+        .deleted_at = row["deleted_at"].as<std::int64_t>()
     };
 }
 
@@ -418,6 +513,154 @@ std::vector<models::AuditLogEntry> AdminRepository::list_audit_logs(
         logs.push_back(row_to_audit_log(row));
     }
     return logs;
+}
+
+std::int64_t AdminRepository::count_sessions(
+    const std::optional<std::int64_t>& user_id_filter
+) const
+{
+    const auto rows = user_id_filter.has_value()
+        ? client()->execSqlSync(
+            "SELECT COUNT(*) AS count FROM sessions WHERE user_id = ?",
+            *user_id_filter
+        )
+        : client()->execSqlSync("SELECT COUNT(*) AS count FROM sessions");
+    return rows.at(0)["count"].as<std::int64_t>();
+}
+
+std::vector<models::AdminSessionSummary> AdminRepository::list_sessions(
+    const std::optional<std::int64_t>& user_id_filter,
+    std::int64_t limit,
+    std::int64_t offset
+) const
+{
+    constexpr std::string_view select{
+        "SELECT s.token_hash, s.user_id, u.username, s.created_at, s.expires_at, "
+        "s.revoked_at, s.admin_confirmed_at, s.ip, s.user_agent "
+        "FROM sessions s JOIN users u ON u.id = s.user_id "
+    };
+    const auto rows = user_id_filter.has_value()
+        ? client()->execSqlSync(
+            std::string{select} + "WHERE s.user_id = ? ORDER BY s.created_at DESC LIMIT ? OFFSET ?",
+            *user_id_filter,
+            limit,
+            offset
+        )
+        : client()->execSqlSync(
+            std::string{select} + "ORDER BY s.created_at DESC LIMIT ? OFFSET ?",
+            limit,
+            offset
+        );
+
+    std::vector<models::AdminSessionSummary> sessions;
+    sessions.reserve(rows.size());
+    for(const auto& row : rows) {
+        sessions.push_back(row_to_session_summary(row));
+    }
+    return sessions;
+}
+
+std::int64_t AdminRepository::count_deleted_threads() const
+{
+    const auto rows = client()->execSqlSync(
+        "SELECT COUNT(*) AS count FROM threads WHERE is_deleted = 1"
+    );
+    return rows.at(0)["count"].as<std::int64_t>();
+}
+
+std::vector<models::DeletedThreadSummary> AdminRepository::list_deleted_threads(
+    std::int64_t limit,
+    std::int64_t offset
+) const
+{
+    const auto rows = client()->execSqlSync(
+        "SELECT t.id, t.forum_id, f.slug AS forum_slug, f.name AS forum_name, "
+        "t.author_id, u.username AS author_username, t.title, t.body_md, "
+        "t.deleted_by, du.username AS deleted_by_username, t.deleted_at "
+        "FROM threads t "
+        "JOIN forums f ON f.id = t.forum_id "
+        "JOIN users u ON u.id = t.author_id "
+        "LEFT JOIN users du ON du.id = t.deleted_by "
+        "WHERE t.is_deleted = 1 "
+        "ORDER BY t.deleted_at DESC LIMIT ? OFFSET ?",
+        limit,
+        offset
+    );
+    std::vector<models::DeletedThreadSummary> threads;
+    threads.reserve(rows.size());
+    for(const auto& row : rows) {
+        threads.push_back(row_to_deleted_thread(row));
+    }
+    return threads;
+}
+
+std::int64_t AdminRepository::count_deleted_posts() const
+{
+    const auto rows = client()->execSqlSync(
+        "SELECT COUNT(*) AS count FROM posts WHERE is_deleted = 1"
+    );
+    return rows.at(0)["count"].as<std::int64_t>();
+}
+
+std::vector<models::DeletedPostSummary> AdminRepository::list_deleted_posts(
+    std::int64_t limit,
+    std::int64_t offset
+) const
+{
+    const auto rows = client()->execSqlSync(
+        "SELECT p.id, p.thread_id, t.title AS thread_title, "
+        "p.author_id, u.username AS author_username, p.floor_no, p.body_md, "
+        "p.deleted_by, du.username AS deleted_by_username, p.deleted_at "
+        "FROM posts p "
+        "JOIN threads t ON t.id = p.thread_id "
+        "JOIN users u ON u.id = p.author_id "
+        "LEFT JOIN users du ON du.id = p.deleted_by "
+        "WHERE p.is_deleted = 1 "
+        "ORDER BY p.deleted_at DESC LIMIT ? OFFSET ?",
+        limit,
+        offset
+    );
+    std::vector<models::DeletedPostSummary> posts;
+    posts.reserve(rows.size());
+    for(const auto& row : rows) {
+        posts.push_back(row_to_deleted_post(row));
+    }
+    return posts;
+}
+
+std::int64_t AdminRepository::count_deleted_sub_posts() const
+{
+    const auto rows = client()->execSqlSync(
+        "SELECT COUNT(*) AS count FROM sub_posts WHERE is_deleted = 1"
+    );
+    return rows.at(0)["count"].as<std::int64_t>();
+}
+
+std::vector<models::DeletedSubPostSummary> AdminRepository::list_deleted_sub_posts(
+    std::int64_t limit,
+    std::int64_t offset
+) const
+{
+    const auto rows = client()->execSqlSync(
+        "SELECT sp.id, sp.post_id, p.thread_id, t.title AS thread_title, "
+        "sp.author_id, u.username AS author_username, sp.body_md, "
+        "sp.deleted_by, du.username AS deleted_by_username, sp.deleted_at "
+        "FROM sub_posts sp "
+        "JOIN posts p ON p.id = sp.post_id "
+        "JOIN threads t ON t.id = p.thread_id "
+        "JOIN users u ON u.id = sp.author_id "
+        "LEFT JOIN users du ON du.id = sp.deleted_by "
+        "WHERE sp.is_deleted = 1 "
+        "ORDER BY sp.deleted_at DESC LIMIT ? OFFSET ?",
+        limit,
+        offset
+    );
+    std::vector<models::DeletedSubPostSummary> sub_posts;
+    sub_posts.reserve(rows.size());
+    for(const auto& row : rows) {
+        sub_posts.push_back(row_to_deleted_sub_post(row));
+    }
+    return sub_posts;
 }
 
 }

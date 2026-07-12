@@ -1,0 +1,61 @@
+/*
+ * Design tokens for the BlogAlone retro-BBS visual language.
+ * Single light theme, high density, minimal color palette (3-5 colors).
+ */
+:root {
+  color-scheme: light;
+
+  /* Palette */
+  --ba-page-bg: #eef1f6;
+  --ba-surface: #ffffff;
+  --ba-surface-alt: #f5f7fb;
+  --ba-header-bg: #dfe6f2;
+  --ba-stripe-bg: #f3f6fb;
+  --ba-border: #b9c4d6;
+  --ba-border-strong: #7e8ba3;
+  --ba-text: #1b1f27;
+  --ba-text-muted: #55606f;
+  --ba-link: #0b4fb0;
+  --ba-link-visited: #5a3d9c;
+  --ba-danger: #8a2020;
+  --ba-danger-bg: #fbebeb;
+  --ba-accent-bg: #fff6da;
+  --ba-accent-border: #d9c26a;
+  --ba-focus: #0b4fb0;
+
+  /* Typography */
+  --ba-font-family: Tahoma, Verdana, "Microsoft YaHei", "微软雅黑", SimSun, "宋体", sans-serif;
+  --ba-font-size-base: 13px;
+  --ba-font-size-small: 12px;
+  --ba-font-size-large: 15px;
+  --ba-font-size-heading: 18px;
+  --ba-line-height: 1.6;
+  --ba-letter-spacing: 0;
+
+  /* Spacing */
+  --ba-space-1: 4px;
+  --ba-space-2: 8px;
+  --ba-space-3: 12px;
+  --ba-space-4: 16px;
+  --ba-space-5: 24px;
+
+  /* Shape */
+  --ba-radius: 2px;
+  --ba-border-width: 1px;
+
+  /* Layout */
+  --ba-content-width: 1180px;
+  --ba-content-min-width: 960px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --ba-motion-duration: 0ms;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  :root {
+    --ba-motion-duration: 120ms;
+  }
+}

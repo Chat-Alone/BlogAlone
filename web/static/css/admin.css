@@ -1,0 +1,74 @@
+/*
+ * Admin backend: tab navigation and dense management tables.
+ */
+.ba-admin-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  border-bottom: 2px solid var(--ba-border-strong);
+  margin-bottom: var(--ba-space-3);
+}
+
+.ba-admin-tab {
+  border: var(--ba-border-width) solid var(--ba-border);
+  border-bottom: none;
+  background: var(--ba-surface-alt);
+  padding: 6px 12px;
+  font-size: var(--ba-font-size-small);
+  font-weight: 700;
+  color: var(--ba-text-muted);
+}
+
+.ba-admin-tab[aria-selected="true"] {
+  background: var(--ba-surface);
+  color: var(--ba-text);
+  border-color: var(--ba-border-strong);
+  position: relative;
+  top: 2px;
+}
+
+.ba-admin-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ba-space-2);
+  align-items: flex-end;
+  margin-bottom: var(--ba-space-3);
+}
+
+.ba-admin-toolbar .ba-field {
+  margin-bottom: 0;
+  min-width: 160px;
+}
+
+.ba-admin-panel {
+  display: none;
+}
+
+.ba-admin-panel.ba-admin-panel-active {
+  display: block;
+}
+
+.ba-admin-actions-cell {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.ba-admin-danger-row td {
+  background: var(--ba-danger-bg);
+}
+
+.ba-audit-detail {
+  font-family: ui-monospace, "Courier New", monospace;
+  font-size: 11px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+@media (max-width: 640px) {
+  .ba-admin-tabs {
+    overflow-x: auto;
+    flex-wrap: nowrap;
+  }
+}
