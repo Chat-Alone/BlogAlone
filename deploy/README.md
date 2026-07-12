@@ -75,6 +75,17 @@ sudo nginx -t
 sudo systemctl reload nginx
 ```
 
+## 日志保留
+
+`blogalone.service`把标准输出和标准错误交给journal(`StandardOutput=journal`、`StandardError=journal`),spdlog本身不写文件,因此保留期由journald而不是logrotate控制。安装保留期配置：
+
+```bash
+sudo install -m 0644 deploy/journald-blogalone.conf /etc/systemd/journald.conf.d/blogalone.conf
+sudo systemctl restart systemd-journald
+```
+
+该配置把`MaxRetentionSec`设为30天,与备份保留策略保持一致。`journald.conf.d`是主机级设置,会影响整机日志保留,不止blogalone一个服务。
+
 ## 备份与保留
 
 `backup.sh`用sqlite3的`.backup`创建一致性数据库副本，执行完整性检查，再归档上传目录并生成SHA-256清单。脚本保留7天日备份和28天周备份，周备份在UTC星期日生成。
@@ -89,7 +100,16 @@ sudo /opt/blogalone/backup.sh
 - `BLOGALONE_UPLOADS_PATH`
 - `BLOGALONE_BACKUP_ROOT`
 
-建议用systemd timer或cron每日执行，失败必须进入主机告警。
+用提供的systemd timer每日执行，失败必须进入主机告警：
+
+```bash
+sudo install -m 0644 deploy/blogalone-backup.service deploy/blogalone-backup.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now blogalone-backup.timer
+systemctl list-timers blogalone-backup.timer
+```
+
+计时器默认在每天UTC03:00附近触发(带15分钟随机延迟，避免与其他主机的定时任务撞点)，`Persistent=true`保证关机错过触发点后开机会补跑一次。失败的运行可通过`journalctl -u blogalone-backup.service`查看。
 
 ## 恢复演练
 

@@ -160,6 +160,13 @@ class IntegrationServer final : public testing::Environment {
         custom["uploads_root"] = (workspace_.path() / "uploads").generic_string();
         custom["password_opslimit"] = Json::UInt64{crypto_pwhash_OPSLIMIT_MIN};
         custom["password_memlimit"] = Json::UInt64{crypto_pwhash_MEMLIMIT_MIN};
+        // All TEST cases share this one server process for the whole binary
+        // lifetime, so the process-wide registration rate limiter must not
+        // use the production default (5/hour): the suite registers more
+        // accounts than that across its test cases. Login keeps the
+        // production default because SuccessfulLoginDoesNotResetFailedLoginLimit
+        // asserts on that exact threshold.
+        custom["rate_limit_registration_max_requests"] = 1'000;
 
         Json::Value config;
         config["listeners"].append(std::move(listener));

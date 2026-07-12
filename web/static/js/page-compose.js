@@ -65,10 +65,12 @@ async function init() {
     return;
   }
 
+  const draftKeyFor = (forumSlug) => `ba:draft:${user.id}:compose:${forumSlug || "default"}`;
+
   const editor = new MarkdownEditor({
     mountPoint: form.querySelector("[data-editor-mount]"),
     maxLength: BODY_MAX,
-    draftKey: `ba:draft:${user.id}:compose:${forumSelect.value || "default"}`,
+    draftKey: draftKeyFor(forumSelect.value),
     textareaId: "compose-body",
     textareaLabel: "正文(1-20000字符,支持Markdown)",
     placeholder: "支持Markdown格式,可拖拽、粘贴或选择图片",
@@ -77,12 +79,21 @@ async function init() {
 
   // Title draft shares the same per-user/per-forum key as the body draft so
   // reloading the compose page restores both fields together.
-  const titleDraftKey = `ba:draft:${user.id}:compose:${forumSelect.value || "default"}:title`;
+  let titleDraftKey = `${draftKeyFor(forumSelect.value)}:title`;
   const restoredTitle = readDraftTitle(titleDraftKey);
   if (restoredTitle) {
     form.title.value = restoredTitle;
   }
   form.title.addEventListener("input", () => writeDraftTitle(titleDraftKey, form.title.value));
+
+  // The draft keys embed the selected forum, so switching forums must
+  // re-scope both drafts instead of silently saving new content under the
+  // key of whichever forum was selected when the page loaded.
+  forumSelect.addEventListener("change", () => {
+    editor.setDraftKey(draftKeyFor(forumSelect.value));
+    titleDraftKey = `${draftKeyFor(forumSelect.value)}:title`;
+    form.title.value = readDraftTitle(titleDraftKey);
+  });
 
   const submitButton = document.querySelector("[data-submit-button]");
   form.addEventListener("submit", async (event) => {

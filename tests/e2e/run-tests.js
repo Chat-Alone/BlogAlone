@@ -36,6 +36,12 @@ try {
   config.db_clients[0].filename = databaseConfigPath;
   config.custom_config.web_root = configPathFor(path.join(repoRoot, "web"));
   config.custom_config.uploads_root = configPathFor(uploadsPath);
+  // All specs run serially against one server process for the whole suite
+  // (see playwright.config.js: workers: 1), so the process-wide registration
+  // rate limiter must not use the development default: the suite registers
+  // as many accounts as the default hourly limit allows, and any new spec
+  // would tip it over into spurious 429s.
+  config.custom_config.rate_limit_registration_max_requests = 1000;
   for (const plugin of config.plugins) {
     if (plugin.name === "blogalone::plugins::DatabaseMigrationPlugin") {
       plugin.config.database_path = databaseConfigPath;

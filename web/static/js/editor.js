@@ -199,6 +199,25 @@ export class MarkdownEditor {
     }
   }
 
+  // Re-scopes the draft to a new key (e.g. the compose form's forum changed).
+  // Flushes the in-progress text to the old key first so it round-trips if
+  // the user switches back, then loads whatever draft exists under the new key.
+  setDraftKey(draftKey) {
+    if (draftKey === this.draftKey) {
+      return;
+    }
+    window.clearTimeout(this.draftTimer);
+    if (this.draftKey) {
+      try {
+        window.localStorage.setItem(this.draftKey, this.textarea.value);
+      } catch (storageError) {
+        // Autosave is best-effort; ignore storage failures.
+      }
+    }
+    this.draftKey = draftKey;
+    this.setValue(this.restoreDraft(""));
+  }
+
   getValue() {
     return this.textarea.value;
   }
