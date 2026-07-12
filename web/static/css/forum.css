@@ -247,3 +247,6 @@
     display: none;
   }
 }
+.ba-compose-action {
+  margin-bottom: var(--ba-space-3);
+}

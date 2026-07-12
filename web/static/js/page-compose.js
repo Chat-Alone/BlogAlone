@@ -1,4 +1,4 @@
-import { el, clear, safeReturnTo, queryParam } from "./dom-utils.js";
+import { el, clear, errorState, safeReturnTo, queryParam } from "./dom-utils.js";
 import { api, ApiError } from "./api-client.js";
 import { loadSession, getCurrentUser, redirectToLogin } from "./session-state.js";
 import { MarkdownEditor } from "./editor.js";
@@ -35,7 +35,14 @@ function writeDraftTitle(titleDraftKey, value) {
 }
 
 async function init() {
-  await loadSession().catch(() => null);
+  try {
+    await loadSession();
+  } catch (error) {
+    const holder = document.querySelector("[data-form-error-holder]");
+    clear(holder);
+    holder.append(errorState("登录状态加载失败,请重试。", init));
+    return;
+  }
   const user = getCurrentUser();
   if (!user) {
     redirectToLogin(safeReturnTo(window.location.pathname + window.location.search));

@@ -293,6 +293,32 @@ std::vector<models::SubPost> ForumRepository::list_sub_posts(std::int64_t post_i
     return sub_posts;
 }
 
+std::vector<models::SubPost> ForumRepository::list_sub_posts_for_post_page(
+    std::int64_t thread_id,
+    std::int64_t limit,
+    std::int64_t offset
+) const
+{
+    const auto rows = client()->execSqlSync(
+        std::string{kSubPostSelect}
+            + "WHERE sp.post_id IN ("
+              "SELECT id FROM posts WHERE thread_id = ? AND is_deleted = 0 "
+              "ORDER BY floor_no ASC LIMIT ? OFFSET ?"
+              ") AND sp.is_deleted = 0 AND p.is_deleted = 0 AND t.is_deleted = 0 "
+              "ORDER BY p.floor_no ASC, sp.created_at ASC, sp.id ASC",
+        thread_id,
+        limit,
+        offset
+    );
+
+    std::vector<models::SubPost> sub_posts;
+    sub_posts.reserve(rows.size());
+    for(const auto& row : rows) {
+        sub_posts.push_back(row_to_sub_post(row));
+    }
+    return sub_posts;
+}
+
 std::int64_t ForumRepository::next_floor_no(std::int64_t thread_id) const
 {
     const auto rows = client()->execSqlSync(

@@ -191,3 +191,82 @@ export function passwordPromptDialog(message) {
     handle.dialog.addEventListener("close", () => finish(null));
   });
 }
+
+function localDateTimeValue(timestamp) {
+  const date = new Date(timestamp - new Date(timestamp).getTimezoneOffset() * 60_000);
+  return date.toISOString().slice(0, 16);
+}
+
+export function banDurationDialog(username) {
+  return new Promise((resolve) => {
+    let resolved = false;
+    const finish = (value) => {
+      if (!resolved) {
+        resolved = true;
+        resolve(value);
+      }
+    };
+
+    const duration = el("select", { id: "ba-ban-duration" }, [
+      el("option", { value: "86400" }, ["1天"]),
+      el("option", { value: "604800", selected: true }, ["7天"]),
+      el("option", { value: "2592000" }, ["30天"]),
+      el("option", { value: "custom" }, ["精确日期时间"]),
+    ]);
+    const customInput = el("input", {
+      type: "datetime-local",
+      id: "ba-ban-until",
+      min: localDateTimeValue(Date.now() + 60_000),
+      value: localDateTimeValue(Date.now() + 7 * 86_400_000),
+    });
+    const customField = el("div", { className: "ba-field", hidden: true }, [
+      el("label", { for: "ba-ban-until" }, ["封禁至"]),
+      customInput,
+    ]);
+    duration.addEventListener("change", () => {
+      customField.hidden = duration.value !== "custom";
+    });
+
+    const errorBox = el("p", { className: "ba-field-error", role: "alert" });
+    const body = el("div", {}, [
+      el("p", { className: "ba-dialog-danger-text" }, [`将封禁用户「${username}」,请选择封禁时长。`]),
+      el("div", { className: "ba-field" }, [
+        el("label", { for: "ba-ban-duration" }, ["封禁时长"]),
+        duration,
+      ]),
+      customField,
+      errorBox,
+    ]);
+    const handle = openDialog({
+      titleText: "封禁用户",
+      bodyNode: body,
+      actions: [
+        {
+          label: "取消",
+          className: "ba-btn",
+          onClick: (close) => {
+            close();
+            finish(null);
+          },
+        },
+        {
+          label: "确认封禁",
+          className: "ba-btn ba-btn-danger",
+          onClick: (close) => {
+            const now = Date.now();
+            const bannedUntil = duration.value === "custom"
+              ? new Date(customInput.value).getTime()
+              : now + Number.parseInt(duration.value, 10) * 1000;
+            if (!Number.isFinite(bannedUntil) || bannedUntil <= now) {
+              errorBox.textContent = "请选择未来的封禁时间";
+              return;
+            }
+            close();
+            finish(Math.floor(bannedUntil / 1000));
+          },
+        },
+      ],
+    });
+    handle.dialog.addEventListener("close", () => finish(null));
+  });
+}

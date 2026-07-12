@@ -1,5 +1,5 @@
-// Session state derived from GET /api/me. Fetched once per page load;
-// a 401 clears in-memory state and does not retry automatically.
+// Session state derived from GET /api/me. Successful and unauthenticated
+// results are cached per page; transient failures remain retryable.
 import { api, ApiError } from "./api-client.js";
 
 let currentUser = null;
@@ -21,21 +21,20 @@ export async function loadSession() {
     .get("/api/me")
     .then((data) => {
       currentUser = data.user;
+      loaded = true;
+      notify();
       return currentUser;
     })
     .catch((error) => {
       if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
         currentUser = null;
+        loaded = true;
+        notify();
         return null;
       }
-      // Non-auth failures (network, 5xx) also leave the visitor state, but
-      // are surfaced to the caller so a page can show a retry affordance.
-      currentUser = null;
+      loadPromise = null;
+      loaded = false;
       throw error;
-    })
-    .finally(() => {
-      loaded = true;
-      notify();
     });
   return loadPromise;
 }
@@ -61,12 +60,15 @@ export async function logout() {
     await api.post("/api/auth/logout");
   } finally {
     currentUser = null;
+    loadPromise = null;
+    loaded = true;
     notify();
   }
 }
 
 export function setCurrentUser(user) {
   currentUser = user;
+  loadPromise = Promise.resolve(user);
   loaded = true;
   notify();
 }

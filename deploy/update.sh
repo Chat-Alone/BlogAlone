@@ -24,6 +24,9 @@ current_migrations="$app_root/migrations"
 previous_migrations="$app_root/migrations.previous"
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 service_stopped=0
+deployment_started=0
+new_service_started=0
+backup_prefix=
 
 case "$app_root" in
     /*) ;;
@@ -54,7 +57,6 @@ test -f "$database_path"
 test -d "$uploads_path"
 
 "$new_binary" --check-config --config "$config_path"
-backup_prefix=$("$script_dir/backup.sh")
 database_uid=$(stat -c %u "$database_path")
 database_gid=$(stat -c %g "$database_path")
 database_mode=$(stat -c %a "$database_path")
@@ -122,18 +124,22 @@ rollback()
     trap - INT TERM HUP EXIT
     if [ "$service_stopped" -eq 1 ]; then
         systemctl stop "$service_name" || true
-        if [ -f "$previous_binary" ]; then
-            install -m 0755 "$previous_binary" "$current_binary" || status=1
+        if [ "$deployment_started" -eq 1 ]; then
+            if [ -f "$previous_binary" ]; then
+                install -m 0755 "$previous_binary" "$current_binary" || status=1
+            fi
+            if [ -d "$previous_web" ]; then
+                rm -rf "$current_web" || status=1
+                mv "$previous_web" "$current_web" || status=1
+            fi
+            if [ -d "$previous_migrations" ]; then
+                rm -rf "$current_migrations" || status=1
+                mv "$previous_migrations" "$current_migrations" || status=1
+            fi
         fi
-        if [ -d "$previous_web" ]; then
-            rm -rf "$current_web" || status=1
-            mv "$previous_web" "$current_web" || status=1
+        if [ "$new_service_started" -eq 1 ] && [ -n "$backup_prefix" ]; then
+            restore_backup || status=1
         fi
-        if [ -d "$previous_migrations" ]; then
-            rm -rf "$current_migrations" || status=1
-            mv "$previous_migrations" "$current_migrations" || status=1
-        fi
-        restore_backup || status=1
         systemctl start "$service_name" || status=1
     fi
     exit "$status"
@@ -142,13 +148,16 @@ trap rollback INT TERM HUP EXIT
 
 systemctl stop "$service_name"
 service_stopped=1
+backup_prefix=$(BLOGALONE_MANAGE_SERVICE=0 "$script_dir/backup.sh")
 rm -rf "$previous_web" "$previous_migrations"
 install -m 0755 "$current_binary" "$previous_binary"
+deployment_started=1
 mv "$current_web" "$previous_web"
 mv "$current_migrations" "$previous_migrations"
 install -m 0755 "$new_binary" "$current_binary"
 cp -a "$new_web" "$current_web"
 cp -a "$new_migrations" "$current_migrations"
+new_service_started=1
 systemctl start "$service_name"
 
 attempt=0

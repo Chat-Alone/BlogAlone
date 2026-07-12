@@ -12,6 +12,7 @@
 #include <cstddef>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -144,13 +145,24 @@ constexpr int kPostFloorRetryCount = 3;
 )
 {
     auto posts = repository.list_posts(thread_id, pagination.page_size, offset);
+    auto sub_posts = repository.list_sub_posts_for_post_page(
+        thread_id,
+        pagination.page_size,
+        offset
+    );
+    std::unordered_map<std::int64_t, std::vector<models::SubPost>> sub_posts_by_post;
+    sub_posts_by_post.reserve(posts.size());
+    for(auto& sub_post : sub_posts) {
+        sub_posts_by_post[sub_post.post_id].push_back(std::move(sub_post));
+    }
+
     std::vector<models::PostWithReplies> items;
     items.reserve(posts.size());
     for(auto& post : posts) {
         const auto post_id = post.id;
         items.push_back(models::PostWithReplies{
             .post = std::move(post),
-            .sub_posts = repository.list_sub_posts(post_id)
+            .sub_posts = std::move(sub_posts_by_post[post_id])
         });
     }
 

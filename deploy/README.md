@@ -1,6 +1,6 @@
 # BlogAlone部署手册
 
-本目录提供nginx反向代理、systemd服务、SQLite在线备份、更新回滚和恢复演练文件。目标系统为使用systemd的Linux发行版。
+本目录提供nginx反向代理、systemd服务、SQLite与上传文件一致性备份、更新回滚和恢复演练文件。目标系统为使用systemd的Linux发行版。
 
 ## 主机准备
 
@@ -88,7 +88,7 @@ sudo systemctl restart systemd-journald
 
 ## 备份与保留
 
-`backup.sh`用sqlite3的`.backup`创建一致性数据库副本，执行完整性检查，再归档上传目录并生成SHA-256清单。脚本保留7天日备份和28天周备份，周备份在UTC星期日生成。
+`backup.sh`在服务原本处于运行状态时会先停止服务，再用sqlite3的`.backup`创建数据库副本并归档上传目录，从而保证两部分来自同一个无写入时间点。完整性检查和SHA-256清单生成完成后自动恢复服务，失败时也会尝试恢复。脚本保留7天日备份和28天周备份，周备份在UTC星期日生成。
 
 ```bash
 sudo /opt/blogalone/backup.sh
@@ -126,7 +126,7 @@ sudo /opt/blogalone/restore-drill.sh \
 
 ## 带回滚更新
 
-`update.sh`接收一个已经上传到本机的发布目录。目录内必须包含`blogalone`、`web`和`migrations`。流程包含新版配置检查、强制备份、停服务、整体替换、启动和健康检查。任一步失败都会恢复旧二进制、页面、迁移、数据库和上传目录，再重新启动服务。
+`update.sh`接收一个已经上传到本机的发布目录。目录内必须包含`blogalone`、`web`和`migrations`。流程包含新版配置检查、停服务、强制一致性备份、整体替换、启动和健康检查。新版服务已尝试启动后若发生失败，脚本会恢复旧二进制、页面、迁移、数据库和上传目录，再重新启动服务。
 
 ```bash
 sudo /opt/blogalone/update.sh /tmp/blogalone-release /etc/blogalone/config.json

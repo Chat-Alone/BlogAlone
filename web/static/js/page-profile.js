@@ -1,4 +1,4 @@
-import { el, clear, safeReturnTo } from "./dom-utils.js";
+import { el, clear, errorState, safeReturnTo } from "./dom-utils.js";
 import { api, ApiError } from "./api-client.js";
 import { loadSession, getCurrentUser, setCurrentUser, redirectToLogin } from "./session-state.js";
 
@@ -47,7 +47,14 @@ async function uploadAvatar(file, statusEl, previewEl) {
 }
 
 async function init() {
-  await loadSession().catch(() => null);
+  try {
+    await loadSession();
+  } catch (error) {
+    const holder = document.querySelector("[data-form-error-holder]");
+    clear(holder);
+    holder.append(errorState("登录状态加载失败,请重试。", init));
+    return;
+  }
   const user = getCurrentUser();
   if (!user) {
     redirectToLogin(safeReturnTo("/profile"));
@@ -62,7 +69,7 @@ async function init() {
 
   const preview = form.querySelector("[data-avatar-preview]");
   preview.src = user.avatar_url || "";
-  preview.style.visibility = user.avatar_url ? "visible" : "hidden";
+  preview.hidden = !user.avatar_url;
 
   let pendingAvatarUrl = user.avatar_url || "";
   const avatarStatus = form.querySelector("[data-avatar-status]");
@@ -74,7 +81,7 @@ async function init() {
     const url = await uploadAvatar(file, avatarStatus, preview);
     if (url) {
       pendingAvatarUrl = url;
-      preview.style.visibility = "visible";
+      preview.hidden = false;
     }
     event.target.value = "";
   });

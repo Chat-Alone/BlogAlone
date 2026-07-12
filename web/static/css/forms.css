@@ -9,6 +9,18 @@
   max-width: none;
 }
 
+.ba-panel-auth {
+  max-width: 480px;
+}
+
+.ba-panel-profile {
+  max-width: 560px;
+}
+
+.ba-panel-compose {
+  max-width: 720px;
+}
+
 .ba-form-actions {
   display: flex;
   gap: var(--ba-space-2);

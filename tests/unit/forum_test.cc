@@ -596,6 +596,52 @@ TEST_F(ForumServiceTest, CreatesSubPostsWithoutIncrementingReplyCount)
     EXPECT_EQ(detail->posts.items.at(0).sub_posts.at(0).id, sub_post->id);
 }
 
+TEST_F(ForumServiceTest, LoadsSubPostsOnlyForTheRequestedPostPage)
+{
+    const auto author_id = insert_user("paged_sub_author");
+    const auto replier_id = insert_user("paged_sub_replier");
+    static_cast<void>(insert_forum("general"));
+    const auto thread = create_thread(author_id);
+    ASSERT_TRUE(thread.has_value());
+
+    const auto first = service_.create_post(
+        author_id,
+        {.thread_id = thread->id, .body_md = "first floor"},
+        40
+    );
+    const auto second = service_.create_post(
+        author_id,
+        {.thread_id = thread->id, .body_md = "second floor"},
+        41
+    );
+    ASSERT_TRUE(first.has_value());
+    ASSERT_TRUE(second.has_value());
+
+    const auto first_sub_post = service_.create_sub_post(
+        replier_id,
+        {.post_id = first->post.id, .body_md = "first nested reply"},
+        42
+    );
+    const auto second_sub_post = service_.create_sub_post(
+        replier_id,
+        {.post_id = second->post.id, .body_md = "second nested reply"},
+        43
+    );
+    ASSERT_TRUE(first_sub_post.has_value());
+    ASSERT_TRUE(second_sub_post.has_value());
+
+    const auto detail = service_.get_thread(
+        thread->id,
+        {.page = 2, .page_size = 1}
+    );
+
+    ASSERT_TRUE(detail.has_value());
+    ASSERT_EQ(detail->posts.items.size(), 1);
+    EXPECT_EQ(detail->posts.items.at(0).post.id, second->post.id);
+    ASSERT_EQ(detail->posts.items.at(0).sub_posts.size(), 1);
+    EXPECT_EQ(detail->posts.items.at(0).sub_posts.at(0).id, second_sub_post->id);
+}
+
 TEST_F(ForumServiceTest, RollsBackSubPostWhenPostIsDeletedDuringCreate)
 {
     const auto author_id = insert_user("sub_race_author");

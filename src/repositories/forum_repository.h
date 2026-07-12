@@ -37,6 +37,11 @@ class ForumRepository {
         std::int64_t offset
     ) const;
     [[nodiscard]] std::vector<models::SubPost> list_sub_posts(std::int64_t post_id) const;
+    [[nodiscard]] std::vector<models::SubPost> list_sub_posts_for_post_page(
+        std::int64_t thread_id,
+        std::int64_t limit,
+        std::int64_t offset
+    ) const;
     [[nodiscard]] std::int64_t next_floor_no(std::int64_t thread_id) const;
     [[nodiscard]] std::int64_t create_thread(
         std::int64_t forum_id,

@@ -1,9 +1,20 @@
 import { el, clear, loadingState, emptyState, errorState, timeElement } from "./dom-utils.js";
 import { api, ApiError } from "./api-client.js";
 import { loadSession, getCurrentUser, redirectToLogin } from "./session-state.js";
-import { confirmDialog, passwordPromptDialog } from "./modal.js";
+import { banDurationDialog, confirmDialog, passwordPromptDialog } from "./modal.js";
 
 const PAGE_SIZE = 20;
+let controlSequence = 0;
+
+function labelledControl(control, label) {
+  controlSequence += 1;
+  const id = `ba-admin-control-${controlSequence}`;
+  control.id = id;
+  return [
+    el("label", { for: id }, [label]),
+    control,
+  ];
+}
 
 // Retries an admin action exactly once after a successful password reauth.
 async function withReauth(actionFn) {
@@ -101,10 +112,10 @@ function initForumsPanel(container) {
         },
       },
       [
-        el("div", { className: "ba-field" }, [el("label", {}, ["slug"]), slugInput]),
-        el("div", { className: "ba-field" }, [el("label", {}, ["名称"]), nameInput]),
-        el("div", { className: "ba-field" }, [el("label", {}, ["说明"]), descInput]),
-        el("div", { className: "ba-field" }, [el("label", {}, ["排序"]), sortInput]),
+        el("div", { className: "ba-field" }, labelledControl(slugInput, "slug")),
+        el("div", { className: "ba-field" }, labelledControl(nameInput, "名称")),
+        el("div", { className: "ba-field" }, labelledControl(descInput, "说明")),
+        el("div", { className: "ba-field" }, labelledControl(sortInput, "排序")),
         submitButton,
       ]
     );
@@ -116,9 +127,9 @@ function initForumsPanel(container) {
       return emptyState("目前还没有任何板块。");
     }
     const rows = forums.map((forum) => {
-      const nameInput = el("input", { type: "text", value: forum.name });
-      const descInput = el("input", { type: "text", value: forum.description });
-      const sortInput = el("input", { type: "number", value: String(forum.sort_order) });
+      const nameInput = el("input", { type: "text", value: forum.name, "aria-label": "名称" });
+      const descInput = el("input", { type: "text", value: forum.description, "aria-label": "说明" });
+      const sortInput = el("input", { type: "number", value: String(forum.sort_order), "aria-label": "排序" });
       const saveButton = el("button", { type: "button", className: "ba-btn ba-btn-small" }, ["保存"]);
       const deleteButton = el("button", { type: "button", className: "ba-btn ba-btn-small ba-btn-danger" }, ["删除"]);
       saveButton.addEventListener("click", async () => {
@@ -216,7 +227,7 @@ function initUsersPanel(container) {
     );
     select.value = roleFilter;
     return el("div", { className: "ba-admin-toolbar" }, [
-      el("div", { className: "ba-field" }, [el("label", {}, ["角色筛选"]), select]),
+      el("div", { className: "ba-field" }, labelledControl(select, "角色筛选")),
     ]);
   }
 
@@ -257,22 +268,15 @@ function initUsersPanel(container) {
       banButton.addEventListener("click", async () => {
         let bannedUntil = null;
         if (!isBanned) {
-          const days = window.prompt("请输入封禁天数(整数,留空取消):", "7");
-          if (!days) {
+          bannedUntil = await banDurationDialog(user.username);
+          if (bannedUntil === null) {
             return;
           }
-          const parsedDays = Number.parseInt(days, 10);
-          if (!Number.isFinite(parsedDays) || parsedDays <= 0) {
-            window.alert("请输入有效的天数");
+        } else {
+          const confirmed = await confirmDialog(`确定要解除用户「${user.username}」的封禁吗?`);
+          if (!confirmed) {
             return;
           }
-          bannedUntil = Math.floor(Date.now() / 1000) + parsedDays * 86400;
-        }
-        const confirmed = await confirmDialog(
-          isBanned ? `确定要解除用户「${user.username}」的封禁吗?` : `确定要封禁用户「${user.username}」吗?`
-        );
-        if (!confirmed) {
-          return;
         }
         try {
           await withReauth(() => api.patch(`/api/admin/users/${user.id}/ban`, { banned_until: bannedUntil }));
@@ -356,7 +360,7 @@ function initDeletedPanel(container) {
     );
     select.value = kind;
     return el("div", { className: "ba-admin-toolbar" }, [
-      el("div", { className: "ba-field" }, [el("label", {}, ["内容类型"]), select]),
+      el("div", { className: "ba-field" }, labelledControl(select, "内容类型")),
     ]);
   }
 
@@ -459,7 +463,7 @@ function initSessionsPanel(container) {
       load();
     });
     return el("div", { className: "ba-admin-toolbar" }, [
-      el("div", { className: "ba-field" }, [el("label", {}, ["按用户ID筛选"]), input]),
+      el("div", { className: "ba-field" }, labelledControl(input, "按用户ID筛选")),
       button,
     ]);
   }
@@ -598,7 +602,14 @@ function activateTab(name) {
 }
 
 async function init() {
-  await loadSession().catch(() => null);
+  try {
+    await loadSession();
+  } catch (error) {
+    const guard = document.querySelector("[data-admin-guard]");
+    clear(guard);
+    guard.append(errorState("登录状态加载失败,请重试。", init));
+    return;
+  }
   const user = getCurrentUser();
   if (!user) {
     redirectToLogin("/admin");

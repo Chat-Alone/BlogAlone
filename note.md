@@ -17,7 +17,7 @@ BlogAlone是一个小型贴吧。访客可以查看板块和帖子；登录用�
 | 密码存储 | libsodium的Argon2id | 密码参数放入配置，登录耗时目标为200ms到800ms |
 | Markdown | cmark-gfm | 后端渲染HTML，禁用原始HTML，渲染结果缓存到表内 |
 | HTML安全 | cmark AST白名单清理 | 渲染前处理链接、图片和原始HTML，禁止正则清理HTML |
-| 日志 | spdlog | 异步写入，按天切分文件，记录request_id |
+| 日志 | spdlog+journald | 结构化输出到标准流，记录request_id、user_id和error_code，由journald保留30天 |
 | 测试 | GoogleTest+DrogonHttpClient | 单元测试覆盖服务层，集成测试覆盖HTTP链路和Cookie |
 | 构建 | CMake3.25+ | 依赖锁定版本，先通过依赖冒烟构建再写业务代码 |
 | 页面提供 | Drogon | 后端直接返回HTML页面和前端静态资源 |
@@ -484,7 +484,7 @@ project/
 
 首次部署不开放公开接口创建管理员。本机执行`/opt/blogalone/blogalone admin create --username name --password-file /root/admin_password.txt`创建第一个管理员；若系统中已有管理员，该命令默认拒绝执行，除非显式传入`--force`并写入`admin.bootstrap_force`审计日志。命令默认读取`/etc/blogalone/config.json`，也可用`--config`指定其他配置。
 
-更新流程为上传新二进制到临时文件、执行`--check-config`、运行SQLite在线备份、停止服务、替换二进制、启动服务、访问`/api/healthz`。失败时停止新版进程，恢复旧二进制并启动服务。该流程不做热更新，停机时间通常只有几秒。
+更新流程为上传新二进制到临时文件、执行`--check-config`、停止服务、备份SQLite数据库和上传目录、替换发布文件、启动服务、访问`/api/healthz`。新版进程已尝试启动后若失败，则恢复旧发布文件及停机后的一致性备份。该流程不做热更新，停机时间包含备份耗时。
 
 `/api/healthz`不需要登录，只检查进程存活、配置已加载、数据库可执行轻量查询。不要在健康检查里做写入、迁移或外部网络请求。
 
@@ -492,7 +492,7 @@ project/
 
 ## 备份和恢复
 
-数据库备份使用SQLite在线备份能力，不能直接复制运行中的`blogalone.db`主文件。`backup.sh`执行sqlite3的`.backup`命令，检查副本完整性，再打包上传目录并生成SHA-256清单。
+备份开始时先停止应用写入，避免SQLite副本与上传目录处于不同时间点。`backup.sh`执行sqlite3的`.backup`命令，检查副本完整性，再打包上传目录并生成SHA-256清单，结束时恢复原本运行的服务。
 
 保留策略为日备份保留7天、周备份保留28天。每次部署和迁移前强制生成一次备份。`restore-drill.sh`在临时目录恢复数据库和上传文件，启动隔离服务并访问板块列表、帖子详情和图片地址。
 

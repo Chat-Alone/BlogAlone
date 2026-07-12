@@ -271,6 +271,33 @@ TEST(InfrastructureTest, LocksDeploymentAndMigrationLineEndings)
     EXPECT_NE(attributes.find("*.conf text eol=lf"), std::string::npos);
 }
 
+TEST(InfrastructureTest, DeploymentBackupsRunWithoutApplicationWrites)
+{
+    const auto source_dir = std::filesystem::path{BLOGALONE_SOURCE_DIR};
+    const auto backup = read_text_file(source_dir / "deploy" / "backup.sh");
+    const auto update = read_text_file(source_dir / "deploy" / "update.sh");
+
+    EXPECT_NE(backup.find("systemctl stop \"$service_name\""), std::string::npos);
+    const auto stop_position = update.find("systemctl stop \"$service_name\"\nservice_stopped=1");
+    const auto backup_position = update.find("BLOGALONE_MANAGE_SERVICE=0");
+    ASSERT_NE(stop_position, std::string::npos);
+    ASSERT_NE(backup_position, std::string::npos);
+    EXPECT_LT(stop_position, backup_position);
+}
+
+TEST(InfrastructureTest, FrontendPagesAvoidInlineStylesForProductionCsp)
+{
+    const auto pages = std::filesystem::path{BLOGALONE_SOURCE_DIR} / "web" / "pages";
+    for(const auto& entry : std::filesystem::directory_iterator{pages}) {
+        if(entry.path().extension() != ".html") {
+            continue;
+        }
+        const auto html = read_text_file(entry.path());
+        EXPECT_EQ(html.find(" style="), std::string::npos) << entry.path().string();
+        EXPECT_NE(html.find("viewport-fit=cover"), std::string::npos) << entry.path().string();
+    }
+}
+
 TEST(InfrastructureTest, MapsApiErrorsToWireCodes)
 {
     const auto error = blogalone::http::make_api_error(

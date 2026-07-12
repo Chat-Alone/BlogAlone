@@ -72,6 +72,7 @@ export class MarkdownEditor {
       type: "file",
       accept: "image/jpeg,image/png,image/gif,image/webp",
       className: "ba-visually-hidden",
+      "aria-label": "选择要插入的图片",
       onChange: (event) => {
         const [file] = event.target.files || [];
         if (file) {
@@ -87,8 +88,8 @@ export class MarkdownEditor {
       this.toolbarButton("引用", "”", () => prefixLines(this.textarea, "> ")),
       this.toolbarButton("代码", "<>", () => wrapSelection(this.textarea, "`")),
       this.toolbarButton("列表", "•", () => prefixLines(this.textarea, "- ")),
-      this.toolbarButton("链接", "🔗", () => insertAtCursor(this.textarea, "[链接文字](https://)")),
-      this.toolbarButton("插入图片", "🖼", () => this.fileInput.click()),
+      this.toolbarButton("链接", "链", () => insertAtCursor(this.textarea, "[链接文字](https://)")),
+      this.toolbarButton("插入图片", "图", () => this.fileInput.click()),
     ]);
 
     const footer = el("div", { className: "ba-editor-footer" }, [

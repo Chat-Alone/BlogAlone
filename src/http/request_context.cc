@@ -1,6 +1,7 @@
 #include "http/request_context.h"
 
 #include "http/client_ip.h"
+#include "http/session_context.h"
 #include "util/crypto.h"
 
 #include <drogon/drogon.h>
@@ -37,6 +38,22 @@ namespace {
     const auto started_at = request_started_at(request);
     const auto elapsed = std::chrono::steady_clock::now() - started_at;
     return std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count();
+}
+
+[[nodiscard]] std::string user_id_for_log(const drogon::HttpRequestPtr& request)
+{
+    const auto session = session_context_of(request);
+    return session.has_value() ? std::to_string(session->user_id) : "-";
+}
+
+[[nodiscard]] std::string error_code_for_log(const drogon::HttpResponsePtr& response)
+{
+    const auto& json = response->getJsonObject();
+    if(!json || !json->isMember("error") || !(*json)["error"].isObject()) {
+        return "-";
+    }
+    const auto& code = (*json)["error"]["code"];
+    return code.isString() ? code.asString() : "-";
 }
 
 }
@@ -92,13 +109,15 @@ void install_request_context_advice()
             }
 
             spdlog::info(
-                "request_id={} method={} path={} status={} elapsed_ms={} ip={}",
+                "request_id={} method={} path={} status={} error_code={} elapsed_ms={} ip={} user_id={}",
                 request_id,
                 request->methodString(),
                 request->path(),
                 static_cast<int>(response->statusCode()),
+                error_code_for_log(response),
                 elapsed_milliseconds(request),
-                client_ip_from(request)
+                client_ip_from(request),
+                user_id_for_log(request)
             );
         }
     );

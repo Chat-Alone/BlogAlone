@@ -108,9 +108,8 @@ test.describe.serial("public browsing, auth, and content journeys", () => {
     await page.goto("/admin");
     await expect(page.locator('[data-panel="forums"]')).toBeVisible();
     const toolbar = page.locator('[data-panel="forums"] .ba-admin-toolbar').first();
-    const textInputs = toolbar.locator('input[type="text"]');
-    await textInputs.nth(0).fill(forumSlug);
-    await textInputs.nth(1).fill("E2E 测试板块");
+    await toolbar.getByLabel("slug", { exact: true }).fill(forumSlug);
+    await toolbar.getByLabel("名称", { exact: true }).fill("E2E 测试板块");
     await toolbar.locator('button[type="submit"]').click();
     await expect(page.locator('[data-panel="forums"] table')).toContainText(forumSlug);
 
@@ -120,6 +119,18 @@ test.describe.serial("public browsing, auth, and content journeys", () => {
     // redirect for /admin, since it has no logged-in fixture of its own).
     await page.click('[data-tab="users"]');
     await expect(page.locator('[data-panel="users"] table')).toContainText(adminUsername);
+    const authorRow = page.locator('[data-panel="users"] tbody tr').filter({ hasText: authorUsername });
+    await authorRow.getByRole("button", { name: "封禁", exact: true }).click();
+    const banDialog = page.locator("dialog.ba-dialog");
+    await banDialog.getByLabel("封禁时长").selectOption("86400");
+    await banDialog.getByRole("button", { name: "确认封禁" }).click();
+    const reauthDialog = page.locator("dialog.ba-dialog");
+    await reauthDialog.getByLabel("管理员密码").fill(adminPassword);
+    await reauthDialog.getByRole("button", { name: "确认身份" }).click();
+    await expect(authorRow.getByRole("button", { name: "解除封禁" })).toBeVisible();
+    await authorRow.getByRole("button", { name: "解除封禁" }).click();
+    await page.locator("dialog.ba-dialog").getByRole("button", { name: "确认" }).click();
+    await expect(authorRow.getByRole("button", { name: "封禁", exact: true })).toBeVisible();
     await page.click('[data-tab="audit"]');
     await expect(page.locator('[data-panel="audit"] table')).toContainText("forum.create");
     await page.click('[data-tab="forums"]');
@@ -205,7 +216,22 @@ test.describe.serial("public browsing, auth, and content journeys", () => {
   });
 
   test("profile page updates email and requires login when signed out", async () => {
+    let meRequests = 0;
+    await page.route("**/api/me", async (route) => {
+      meRequests += 1;
+      if (meRequests === 1) {
+        await route.fulfill({ status: 500, contentType: "application/json", body: '{"error":{"code":"internal_error","message":"temporary","request_id":"req_e2e"}}' });
+        return;
+      }
+      await route.continue();
+    });
     await page.goto("/profile");
+    await expect(page).toHaveURL(/\/profile$/);
+    await expect(page.locator("[data-form-error-holder]")).toContainText("登录状态加载失败");
+    await page.locator("[data-form-error-holder]").getByRole("button", { name: "重试" }).click();
+    await page.unroute("**/api/me");
+    await expect(page.locator("[data-profile-form]")).toBeVisible();
+    await expect(page.getByLabel("头像")).toHaveAttribute("type", "file");
     await page.fill("#profile-email", `${authorUsername}-updated@example.com`);
     await page.click("[data-submit-button]");
     await expect(page.locator("[data-form-notice-holder]")).toContainText("已更新");

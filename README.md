@@ -231,7 +231,7 @@ sudo systemctl reload nginx
 
 - nginx域名、TLS和反向代理配置
 - systemd服务安装与启动
-- sqlite3在线备份和保留策略
+- SQLite数据库与上传文件一致性备份和保留策略
 - 临时目录恢复演练
 - 带健康检查和完整数据恢复的版本化更新
 

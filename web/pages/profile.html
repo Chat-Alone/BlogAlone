@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>个人资料 - BlogAlone</title>
   <link rel="stylesheet" href="/static/css/tokens.css">
   <link rel="stylesheet" href="/static/css/base.css">
@@ -26,7 +26,7 @@
     </header>
     <main id="main" class="ba-main" tabindex="-1">
       <div class="ba-container">
-        <section class="ba-panel" style="max-width: 560px">
+        <section class="ba-panel ba-panel-profile">
           <div class="ba-panel-title"><h1>个人资料</h1></div>
           <div class="ba-panel-body">
             <div data-form-error-holder></div>
@@ -38,10 +38,10 @@
                 <input type="text" id="profile-username" disabled>
               </div>
               <div class="ba-field">
-                <label>头像</label>
+                <label for="profile-avatar">头像</label>
                 <div class="ba-avatar-row">
                   <img class="ba-avatar-preview" data-avatar-preview alt="头像预览">
-                  <input type="file" accept="image/jpeg,image/png,image/gif,image/webp" data-avatar-input>
+                  <input type="file" id="profile-avatar" accept="image/jpeg,image/png,image/gif,image/webp" data-avatar-input>
                 </div>
                 <span class="ba-upload-status" data-avatar-status role="status"></span>
               </div>
