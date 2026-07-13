@@ -226,7 +226,9 @@ AuthResult<AuthIssued> AuthService::login(
 ) const
 {
     const auto username = util::trim_ascii_whitespace(request.username);
-    if(username.empty() || request.password.empty()) {
+    if(username.empty()
+        || request.password.empty()
+        || request.password.size() > util::MAX_PASSWORD_LENGTH) {
         return AuthError::invalid_credentials;
     }
 

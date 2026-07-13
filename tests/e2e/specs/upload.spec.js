@@ -23,6 +23,13 @@ function unique(prefix) {
   return `${prefix}${Date.now().toString(36)}${Math.floor(Math.random() * 1000)}`;
 }
 
+async function logoutThroughHeader(page) {
+  await Promise.all([
+    page.waitForNavigation({ waitUntil: "load" }),
+    page.click("[data-session-box] button"),
+  ]);
+}
+
 test("selecting an image in the editor uploads it and inserts the site-relative URL", async ({ page }) => {
   const username = unique("uploader");
   const password = "correct-horse-battery-staple";
@@ -41,7 +48,7 @@ test("selecting an image in the editor uploads it and inserts the site-relative 
     await page.waitForURL("**/");
     execFileSync("python", [promoteScript, dbPath, adminUsername], { stdio: "inherit" });
 
-    await page.click("[data-session-box] button");
+    await logoutThroughHeader(page);
     await expect(page.locator("[data-session-box]")).toContainText("登录");
     await page.goto("/login");
     await page.fill("#login-username", adminUsername);
@@ -55,7 +62,7 @@ test("selecting an image in the editor uploads it and inserts the site-relative 
     await toolbar.locator('input[type="text"]').nth(1).fill("上传测试板块");
     await toolbar.locator('button[type="submit"]').click();
     await expect(page.locator('[data-panel="forums"] table')).toContainText(forumSlug);
-    await page.click("[data-session-box] button");
+    await logoutThroughHeader(page);
     await expect(page.locator("[data-session-box]")).toContainText("登录");
 
     await page.goto("/register");

@@ -90,6 +90,7 @@ add_library(blogalone_core STATIC
     src/services/upload_file_mutex.cc
     src/services/upload_cleanup_service.cc
     src/services/upload_service.cc
+    src/security/password_task_queue.cc
     src/security/rate_limiter.cc
     src/util/crypto.cc
     src/util/credentials.cc

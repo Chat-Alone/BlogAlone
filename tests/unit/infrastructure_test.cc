@@ -280,9 +280,25 @@ TEST(InfrastructureTest, DeploymentBackupsRunWithoutApplicationWrites)
     EXPECT_NE(backup.find("systemctl stop \"$service_name\""), std::string::npos);
     const auto stop_position = update.find("systemctl stop \"$service_name\"\nservice_stopped=1");
     const auto backup_position = update.find("BLOGALONE_MANAGE_SERVICE=0");
+    const auto update_lock_position = update.find("flock -n 9");
     ASSERT_NE(stop_position, std::string::npos);
     ASSERT_NE(backup_position, std::string::npos);
+    ASSERT_NE(update_lock_position, std::string::npos);
+    EXPECT_LT(update_lock_position, stop_position);
     EXPECT_LT(stop_position, backup_position);
+    EXPECT_NE(backup.find("BLOGALONE_MANAGE_LOCK"), std::string::npos);
+    EXPECT_NE(update.find("BLOGALONE_MANAGE_LOCK=0"), std::string::npos);
+}
+
+TEST(InfrastructureTest, SchedulesDailyBackupsInUtc)
+{
+    const auto timer = read_text_file(
+        std::filesystem::path{BLOGALONE_SOURCE_DIR}
+        / "deploy"
+        / "blogalone-backup.timer"
+    );
+
+    EXPECT_NE(timer.find("OnCalendar=*-*-* 03:00:00 UTC"), std::string::npos);
 }
 
 TEST(InfrastructureTest, FrontendPagesAvoidInlineStylesForProductionCsp)

@@ -8,6 +8,7 @@ uploads_path=${BLOGALONE_UPLOADS_PATH:-/var/lib/blogalone/uploads}
 backup_root=${BLOGALONE_BACKUP_ROOT:-/backup/blogalone}
 service_name=${BLOGALONE_SERVICE_NAME:-blogalone.service}
 manage_service=${BLOGALONE_MANAGE_SERVICE:-1}
+manage_lock=${BLOGALONE_MANAGE_LOCK:-1}
 timestamp=$(date -u +%Y%m%d-%H%M%S)
 daily_prefix="$backup_root/daily-$timestamp"
 lock_file="$backup_root/.backup.lock"
@@ -25,8 +26,10 @@ restart_service()
 trap restart_service INT TERM HUP EXIT
 
 mkdir -p "$backup_root"
-exec 9>"$lock_file"
-flock -n 9
+if [ "$manage_lock" -eq 1 ]; then
+    exec 9>"$lock_file"
+    flock -n 9
+fi
 
 test -f "$database_path"
 test -d "$uploads_path"

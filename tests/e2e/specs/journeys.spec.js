@@ -8,6 +8,8 @@ const { test, expect } = require("@playwright/test");
 
 const dbPath = process.env.BLOGALONE_E2E_DB_PATH;
 const promoteScript = path.join(__dirname, "..", "promote-admin.py");
+const PNG_BASE64 =
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAANSURBVBhXY/jPwPAfAAUAAf+mXJtdAAAAAElFTkSuQmCC";
 
 if (!dbPath) {
   throw new Error("BLOGALONE_E2E_DB_PATH is required");
@@ -19,6 +21,20 @@ function unique(prefix) {
 
 function promoteToAdmin(username) {
   execFileSync("python", [promoteScript, dbPath, username], { stdio: "inherit" });
+}
+
+function waitForApiResponse(page, method, pathFragment) {
+  return page.waitForResponse((response) => {
+    const request = response.request();
+    return request.method() === method && response.url().includes(pathFragment) && response.ok();
+  });
+}
+
+async function logoutThroughHeader(page) {
+  await Promise.all([
+    page.waitForNavigation({ waitUntil: "load" }),
+    page.click("[data-session-box] button"),
+  ]);
 }
 
 test.describe.serial("public browsing, auth, and content journeys", () => {
@@ -59,7 +75,7 @@ test.describe.serial("public browsing, auth, and content journeys", () => {
   test("logout returns to visitor chrome, login restores the session", async () => {
     await page.goto("/");
     await expect(page.locator("[data-session-box]")).toContainText(authorUsername);
-    await page.click("[data-session-box] button");
+    await logoutThroughHeader(page);
     await expect(page.locator("[data-session-box]")).toContainText("登录");
 
     await page.goto("/login");
@@ -94,7 +110,7 @@ test.describe.serial("public browsing, auth, and content journeys", () => {
     await page.click("[data-submit-button]");
     await page.waitForURL("**/");
     promoteToAdmin(adminUsername);
-    await page.click("[data-session-box] button");
+    await logoutThroughHeader(page);
     await expect(page.locator("[data-session-box]")).toContainText("登录");
   });
 
@@ -150,7 +166,7 @@ test.describe.serial("public browsing, auth, and content journeys", () => {
       await page.setViewportSize(previousSize);
     }
 
-    await page.click("[data-session-box] button");
+    await logoutThroughHeader(page);
     await expect(page.locator("[data-session-box]")).toContainText("登录");
   });
 
@@ -215,6 +231,111 @@ test.describe.serial("public browsing, auth, and content journeys", () => {
     await expect(dialog).toHaveCount(0);
   });
 
+  test("admin manages roles, sessions, moderation, and deleted content", async () => {
+    await logoutThroughHeader(page);
+    await page.goto("/login");
+    await page.fill("#login-username", adminUsername);
+    await page.fill("#login-password", adminPassword);
+    await page.click("[data-submit-button]");
+    await page.waitForURL("**/");
+
+    await page.goto("/admin");
+    await page.click('[data-tab="sessions"]');
+    const activeAuthorSession = page
+      .locator('[data-panel="sessions"] tbody tr')
+      .filter({ hasText: authorUsername })
+      .filter({ has: page.locator('button:not([disabled])') })
+      .first();
+    await expect(activeAuthorSession).toBeVisible();
+    await activeAuthorSession.getByRole("button", { name: "撤销" }).click();
+    await page.locator("dialog.ba-dialog").getByRole("button", { name: "确认" }).click();
+    const reauthDialog = page.locator("dialog.ba-dialog");
+    await reauthDialog.getByLabel("管理员密码").fill(adminPassword);
+    const revokeResponse = waitForApiResponse(page, "DELETE", "/api/admin/sessions/");
+    await reauthDialog.getByRole("button", { name: "确认身份" }).click();
+    await revokeResponse;
+    await expect(
+      page
+        .locator('[data-panel="sessions"] tbody tr')
+        .filter({ hasText: authorUsername })
+        .filter({ has: page.locator('button[disabled]') })
+        .first()
+    ).toBeVisible();
+
+    await page.click('[data-tab="users"]');
+    let authorRow = page.locator('[data-panel="users"] tbody tr').filter({ hasText: authorUsername });
+    await authorRow.getByRole("button", { name: "提升为管理员" }).click();
+    const promoteResponse = waitForApiResponse(page, "PATCH", "/role");
+    await page.locator("dialog.ba-dialog").getByRole("button", { name: "确认" }).click();
+    await promoteResponse;
+    await expect(authorRow.locator("td").nth(3)).toHaveText("管理员");
+    await authorRow.getByRole("button", { name: "降为普通用户" }).click();
+    const demoteResponse = waitForApiResponse(page, "PATCH", "/role");
+    await page.locator("dialog.ba-dialog").getByRole("button", { name: "确认" }).click();
+    await demoteResponse;
+    authorRow = page.locator('[data-panel="users"] tbody tr').filter({ hasText: authorUsername });
+    await expect(authorRow.locator("td").nth(3)).toHaveText("普通用户");
+
+    await page.click('[data-tab="deleted"]');
+    await page.getByLabel("内容类型").selectOption("posts");
+    const deletedPostRow = page
+      .locator('[data-panel="deleted"] tbody tr')
+      .filter({ hasText: "E2E 测试主题标题" });
+    await expect(deletedPostRow).toBeVisible();
+    await deletedPostRow.getByRole("button", { name: "恢复" }).click();
+    const restorePostResponse = waitForApiResponse(page, "PATCH", "/api/admin/posts/");
+    await page.locator("dialog.ba-dialog").getByRole("button", { name: "恢复" }).click();
+    await restorePostResponse;
+
+    await page.goto(threadUrl);
+    await expect(page.locator(".ba-floor").first().locator(".ba-floor-body")).toContainText(
+      "已编辑的楼层回复内容"
+    );
+    await page.route("**/api/admin/threads/*/pin", async (route) => {
+      await route.fulfill({
+        status: 500,
+        contentType: "application/json",
+        body: '{"error":{"code":"internal_error","message":"temporary failure","request_id":"req_e2e"}}',
+      });
+    });
+    const pinAlertPromise = new Promise((resolve) => {
+      page.once("dialog", async (dialog) => {
+        const message = dialog.message();
+        await dialog.accept();
+        resolve(message);
+      });
+    });
+    await page.getByRole("button", { name: "置顶", exact: true }).click();
+    expect(await pinAlertPromise).toContain("temporary failure");
+    await page.unroute("**/api/admin/threads/*/pin");
+    await expect(page.getByRole("button", { name: "置顶", exact: true })).toBeEnabled();
+    await page.getByRole("button", { name: "置顶", exact: true }).click();
+    await expect(page.locator(".ba-tag-pinned")).toContainText("置顶");
+
+    await page.getByRole("button", { name: "管理员删除" }).first().click();
+    await page.locator("dialog.ba-dialog").getByRole("button", { name: "确认" }).click();
+    await page.waitForURL(`**/forums/${forumSlug}`);
+    await page.goto("/admin");
+    await page.click('[data-tab="deleted"]');
+    const deletedThreadRow = page
+      .locator('[data-panel="deleted"] tbody tr')
+      .filter({ hasText: "E2E 测试主题标题" });
+    await deletedThreadRow.getByRole("button", { name: "恢复" }).click();
+    const restoreThreadResponse = waitForApiResponse(page, "PATCH", "/api/admin/threads/");
+    await page.locator("dialog.ba-dialog").getByRole("button", { name: "恢复" }).click();
+    await restoreThreadResponse;
+    await expect(deletedThreadRow).toHaveCount(0);
+
+    await page.click('[data-tab="audit"]');
+    await expect(page.locator('[data-panel="audit"] table')).toContainText("thread.restore");
+    await logoutThroughHeader(page);
+    await page.goto("/login");
+    await page.fill("#login-username", authorUsername);
+    await page.fill("#login-password", authorPassword);
+    await page.click("[data-submit-button]");
+    await page.waitForURL("**/");
+  });
+
   test("profile page updates email and requires login when signed out", async () => {
     let meRequests = 0;
     await page.route("**/api/me", async (route) => {
@@ -232,9 +353,16 @@ test.describe.serial("public browsing, auth, and content journeys", () => {
     await page.unroute("**/api/me");
     await expect(page.locator("[data-profile-form]")).toBeVisible();
     await expect(page.getByLabel("头像")).toHaveAttribute("type", "file");
+    await page.getByLabel("头像").setInputFiles({
+      name: "avatar.png",
+      mimeType: "image/png",
+      buffer: Buffer.from(PNG_BASE64, "base64"),
+    });
+    await expect(page.locator("[data-avatar-status]")).toContainText("上传成功");
     await page.fill("#profile-email", `${authorUsername}-updated@example.com`);
     await page.click("[data-submit-button]");
     await expect(page.locator("[data-form-notice-holder]")).toContainText("已更新");
+    await expect(page.locator("[data-avatar-preview]")).toHaveAttribute("src", /^\/uploads\//);
 
     await context.clearCookies();
     await page.goto("/profile");

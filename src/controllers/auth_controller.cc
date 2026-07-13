@@ -9,6 +9,7 @@
 #include "http/request_context.h"
 #include "http/session_context.h"
 #include "models/user.h"
+#include "security/password_task_queue.h"
 #include "security/rate_limiter.h"
 #include "services/auth_service.h"
 #include "util/time.h"
@@ -17,6 +18,7 @@
 #include <json/value.h>
 
 #include <functional>
+#include <memory>
 #include <optional>
 #include <string>
 #include <utility>
@@ -169,29 +171,49 @@ void handle_register(
         return;
     }
 
-    const services::AuthService service{
-        repositories::UserRepository{},
-        repositories::SessionRepository{},
-        app_config.session_ttl_seconds,
-        app_config.password_hash_options
-    };
-
-    const auto result = service.register_user(
-        registration,
+    const auto session_ttl_seconds = app_config.session_ttl_seconds;
+    const auto password_hash_options = app_config.password_hash_options;
+    const auto user_agent = request->getHeader("user-agent");
+    const auto submitted = security::submit_password_task([
+        request,
+        callback,
+        registration = std::move(registration),
         client_ip,
-        request->getHeader("user-agent"),
-        util::utc_unix_seconds()
-    );
-    if(!result.has_value()) {
+        user_agent,
+        session_ttl_seconds,
+        password_hash_options
+    ] {
+        http::run_guarded_request(request, callback, "auth.register", [&] {
+            const services::AuthService service{
+                repositories::UserRepository{},
+                repositories::SessionRepository{},
+                session_ttl_seconds,
+                password_hash_options
+            };
+            const auto result = service.register_user(
+                registration,
+                client_ip,
+                user_agent,
+                util::utc_unix_seconds()
+            );
+            if(!result.has_value()) {
+                callback(error_response(
+                    request,
+                    to_error_code(result.error()),
+                    std::string{services::to_string(result.error())}
+                ));
+                return;
+            }
+            callback(auth_success(*result, session_ttl_seconds));
+        });
+    });
+    if(!submitted) {
         callback(error_response(
             request,
-            to_error_code(result.error()),
-            std::string{services::to_string(result.error())}
+            http::ErrorCode::rate_limited,
+            "authentication queue is busy"
         ));
-        return;
     }
-
-    callback(auth_success(*result, app_config.session_ttl_seconds));
 }
 
 void handle_login(
@@ -229,36 +251,61 @@ void handle_login(
         return;
     }
 
-    const services::AuthService service{
-        repositories::UserRepository{},
-        repositories::SessionRepository{},
-        app_config.session_ttl_seconds,
-        app_config.password_hash_options
-    };
-
-    const auto result = service.login(
-        login,
-        client_ip,
-        request->getHeader("user-agent"),
-        util::utc_unix_seconds()
+    const auto session_ttl_seconds = app_config.session_ttl_seconds;
+    const auto password_hash_options = app_config.password_hash_options;
+    const auto user_agent = request->getHeader("user-agent");
+    auto shared_reservation = std::make_shared<security::RequestRateLimiter::Reservation>(
+        std::move(*reservation)
     );
-    if(!result.has_value()) {
-        if(result.error() == services::AuthError::invalid_credentials) {
-            reservation->commit();
-        }
-        const auto code = result.error() == services::AuthError::invalid_credentials
-            ? http::ErrorCode::unauthenticated
-            : to_error_code(result.error());
+    const auto submitted = security::submit_password_task([
+        request,
+        callback,
+        login = std::move(login),
+        client_ip,
+        user_agent,
+        session_ttl_seconds,
+        password_hash_options,
+        shared_reservation
+    ] {
+        http::run_guarded_request(request, callback, "auth.login", [&] {
+            const services::AuthService service{
+                repositories::UserRepository{},
+                repositories::SessionRepository{},
+                session_ttl_seconds,
+                password_hash_options
+            };
+            const auto result = service.login(
+                login,
+                client_ip,
+                user_agent,
+                util::utc_unix_seconds()
+            );
+            if(!result.has_value()) {
+                if(result.error() == services::AuthError::invalid_credentials) {
+                    shared_reservation->commit();
+                }
+                const auto code = result.error() == services::AuthError::invalid_credentials
+                    ? http::ErrorCode::unauthenticated
+                    : to_error_code(result.error());
+                callback(error_response(
+                    request,
+                    code,
+                    std::string{services::to_string(result.error())}
+                ));
+                return;
+            }
+
+            shared_reservation->cancel();
+            callback(auth_success(*result, session_ttl_seconds));
+        });
+    });
+    if(!submitted) {
         callback(error_response(
             request,
-            code,
-            std::string{services::to_string(result.error())}
+            http::ErrorCode::rate_limited,
+            "authentication queue is busy"
         ));
-        return;
     }
-
-    reservation->cancel();
-    callback(auth_success(*result, app_config.session_ttl_seconds));
 }
 
 void handle_logout(

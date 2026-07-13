@@ -13,6 +13,8 @@ service_name=${BLOGALONE_SERVICE_NAME:-blogalone.service}
 health_url=${BLOGALONE_HEALTH_URL:-http://127.0.0.1:8080/api/healthz}
 database_path=${BLOGALONE_DATABASE_PATH:-/var/lib/blogalone/blogalone.db}
 uploads_path=${BLOGALONE_UPLOADS_PATH:-/var/lib/blogalone/uploads}
+backup_root=${BLOGALONE_BACKUP_ROOT:-/backup/blogalone}
+lock_file="$backup_root/.backup.lock"
 new_binary="$release_root/blogalone"
 new_web="$release_root/web"
 new_migrations="$release_root/migrations"
@@ -40,8 +42,12 @@ case "$uploads_path" in
     /*) ;;
     *) echo "BLOGALONE_UPLOADS_PATH must be an absolute path" >&2; exit 2 ;;
 esac
-if [ "$app_root" = "/" ] || [ "$uploads_path" = "/" ]; then
-    echo "application and upload roots must not be /" >&2
+case "$backup_root" in
+    /*) ;;
+    *) echo "BLOGALONE_BACKUP_ROOT must be an absolute path" >&2; exit 2 ;;
+esac
+if [ "$app_root" = "/" ] || [ "$uploads_path" = "/" ] || [ "$backup_root" = "/" ]; then
+    echo "application, upload and backup roots must not be /" >&2
     exit 2
 fi
 
@@ -55,6 +61,10 @@ test -d "$current_web"
 test -d "$current_migrations"
 test -f "$database_path"
 test -d "$uploads_path"
+
+mkdir -p "$backup_root"
+exec 9>"$lock_file"
+flock -n 9
 
 "$new_binary" --check-config --config "$config_path"
 database_uid=$(stat -c %u "$database_path")
@@ -148,7 +158,7 @@ trap rollback INT TERM HUP EXIT
 
 systemctl stop "$service_name"
 service_stopped=1
-backup_prefix=$(BLOGALONE_MANAGE_SERVICE=0 "$script_dir/backup.sh")
+backup_prefix=$(BLOGALONE_MANAGE_LOCK=0 BLOGALONE_MANAGE_SERVICE=0 "$script_dir/backup.sh")
 rm -rf "$previous_web" "$previous_migrations"
 install -m 0755 "$current_binary" "$previous_binary"
 deployment_started=1

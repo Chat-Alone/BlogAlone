@@ -23,7 +23,12 @@ function removeWorkspace() {
   ) {
     throw new Error(`Refusing to remove unexpected E2E workspace: ${resolvedWorkspace}`);
   }
-  fs.rmSync(resolvedWorkspace, { recursive: true, force: true });
+  fs.rmSync(resolvedWorkspace, {
+    recursive: true,
+    force: true,
+    maxRetries: 10,
+    retryDelay: 200,
+  });
 }
 
 try {

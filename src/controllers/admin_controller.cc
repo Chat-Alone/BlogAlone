@@ -9,6 +9,7 @@
 #include "models/admin.h"
 #include "models/forum.h"
 #include "models/user.h"
+#include "security/password_task_queue.h"
 #include "services/admin_service.h"
 #include "util/time.h"
 
@@ -441,24 +442,47 @@ void handle_reauth(
         return;
     }
     bool type_error = false;
-    const auto password = http::json_string(*body, "password", type_error).value_or("");
+    auto password = http::json_string(*body, "password", type_error).value_or("");
     if(type_error) {
         callback(invalid_response(request, "invalid field type"));
         return;
     }
-    const auto result = services::AdminService{}.reauth(
-        session->user_id,
-        session->token_hash,
-        password,
-        util::utc_unix_seconds()
-    );
-    if(!result.has_value()) {
-        callback(error_response(request, result.error()));
-        return;
+    const auto admin_id = session->user_id;
+    const auto token_hash = session->token_hash;
+    const auto submitted = security::submit_password_task([
+        request,
+        callback,
+        admin_id,
+        token_hash,
+        password = std::move(password)
+    ] {
+        http::run_guarded_request(request, callback, "admin.reauth", [&] {
+            const auto result = services::AdminService{}.reauth(
+                admin_id,
+                token_hash,
+                password,
+                util::utc_unix_seconds()
+            );
+            if(!result.has_value()) {
+                callback(error_response(request, result.error()));
+                return;
+            }
+            Json::Value response_body;
+            response_body["admin_confirmed_at"] = static_cast<Json::Int64>(
+                result->confirmed_at
+            );
+            callback(drogon::HttpResponse::newHttpJsonResponse(response_body));
+        });
+    });
+    if(!submitted) {
+        callback(http::make_error_response(
+            http::make_api_error(
+                http::ErrorCode::rate_limited,
+                "authentication queue is busy"
+            ),
+            http::request_id_from(request)
+        ));
     }
-    Json::Value response_body;
-    response_body["admin_confirmed_at"] = static_cast<Json::Int64>(result->confirmed_at);
-    callback(drogon::HttpResponse::newHttpJsonResponse(response_body));
 }
 
 void handle_list_sessions(

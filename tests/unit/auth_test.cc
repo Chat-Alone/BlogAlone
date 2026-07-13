@@ -478,6 +478,23 @@ TEST(AuthServiceTest, RejectsMissingAndWrongPasswordWithSameError)
     EXPECT_EQ(missing_user.error(), blogalone::services::AuthError::invalid_credentials);
 }
 
+TEST(AuthServiceTest, RejectsOverlongLoginPasswordBeforeVerification)
+{
+    const auto service = auth_test_service();
+    const auto result = service.login(
+        blogalone::services::LoginRequest{
+            .username = unique_username("longpassword"),
+            .password = std::string(blogalone::util::MAX_PASSWORD_LENGTH + 1, 'x')
+        },
+        "127.0.0.1",
+        "test",
+        31
+    );
+
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error(), blogalone::services::AuthError::invalid_credentials);
+}
+
 TEST(AuthServiceTest, UpdatesProfileAndRejectsDuplicateEmail)
 {
     const auto service = auth_test_service();

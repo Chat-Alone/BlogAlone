@@ -29,6 +29,17 @@ function requireLogin() {
   return user;
 }
 
+async function runButtonAction(button, action, failureMessage) {
+  button.disabled = true;
+  try {
+    await action();
+  } catch (error) {
+    window.alert(error instanceof ApiError ? error.message : failureMessage);
+  } finally {
+    button.disabled = false;
+  }
+}
+
 function flagTags(thread) {
   const tags = [];
   if (thread.is_pinned) {
@@ -159,12 +170,10 @@ function buildThreadPanel(detail, page, pageSize) {
       if (!confirmed) {
         return;
       }
-      try {
+      await runButtonAction(deleteButton, async () => {
         await api.delete(`/api/threads/${thread.id}`);
         window.location.assign(`/forums/${encodeURIComponent(thread.forum.slug)}`);
-      } catch (error) {
-        window.alert(error instanceof ApiError ? error.message : "删除失败");
-      }
+      }, "删除失败");
     });
     actions.append(editButton, deleteButton);
   }
@@ -179,20 +188,26 @@ function buildThreadPanel(detail, page, pageSize) {
       "管理员删除",
     ]);
     pinButton.addEventListener("click", async () => {
-      await api.patch(`/api/admin/threads/${thread.id}/pin`, { is_pinned: !thread.is_pinned });
-      render();
+      await runButtonAction(pinButton, async () => {
+        await api.patch(`/api/admin/threads/${thread.id}/pin`, { is_pinned: !thread.is_pinned });
+        await render();
+      }, "置顶操作失败");
     });
     featureButton.addEventListener("click", async () => {
-      await api.patch(`/api/admin/threads/${thread.id}/feature`, { is_featured: !thread.is_featured });
-      render();
+      await runButtonAction(featureButton, async () => {
+        await api.patch(`/api/admin/threads/${thread.id}/feature`, { is_featured: !thread.is_featured });
+        await render();
+      }, "加精操作失败");
     });
     adminDeleteButton.addEventListener("click", async () => {
       const confirmed = await confirmDialog(`确定要以管理员身份删除主题《${thread.title}》吗?`);
       if (!confirmed) {
         return;
       }
-      await api.patch(`/api/admin/threads/${thread.id}/delete`, { is_deleted: true });
-      window.location.assign(`/forums/${encodeURIComponent(thread.forum.slug)}`);
+      await runButtonAction(adminDeleteButton, async () => {
+        await api.patch(`/api/admin/threads/${thread.id}/delete`, { is_deleted: true });
+        window.location.assign(`/forums/${encodeURIComponent(thread.forum.slug)}`);
+      }, "管理员删除失败");
     });
     actions.append(pinButton, featureButton, adminDeleteButton);
   }
@@ -358,8 +373,10 @@ function buildFloor(post, thread, user) {
       if (!confirmed) {
         return;
       }
-      await api.delete(`/api/posts/${post.id}`);
-      render();
+      await runButtonAction(deleteButton, async () => {
+        await api.delete(`/api/posts/${post.id}`);
+        await render();
+      }, "删除失败");
     });
     actions.append(editButton, deleteButton);
   }
@@ -372,8 +389,10 @@ function buildFloor(post, thread, user) {
       if (!confirmed) {
         return;
       }
-      await api.patch(`/api/admin/posts/${post.id}/delete`, { is_deleted: true });
-      render();
+      await runButtonAction(adminDelete, async () => {
+        await api.patch(`/api/admin/posts/${post.id}/delete`, { is_deleted: true });
+        await render();
+      }, "管理员删除失败");
     });
     actions.append(adminDelete);
   }
@@ -429,8 +448,10 @@ function buildSubPost(subPost, user) {
       if (!confirmed) {
         return;
       }
-      await api.delete(`/api/sub_posts/${subPost.id}`);
-      render();
+      await runButtonAction(deleteButton, async () => {
+        await api.delete(`/api/sub_posts/${subPost.id}`);
+        await render();
+      }, "删除失败");
     });
     actions.append(editButton, deleteButton);
   }
@@ -443,8 +464,10 @@ function buildSubPost(subPost, user) {
       if (!confirmed) {
         return;
       }
-      await api.patch(`/api/admin/sub_posts/${subPost.id}/delete`, { is_deleted: true });
-      render();
+      await runButtonAction(adminDelete, async () => {
+        await api.patch(`/api/admin/sub_posts/${subPost.id}/delete`, { is_deleted: true });
+        await render();
+      }, "管理员删除失败");
     });
     actions.append(adminDelete);
   }

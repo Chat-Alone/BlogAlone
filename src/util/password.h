@@ -6,6 +6,8 @@
 
 namespace blogalone::util {
 
+inline constexpr std::size_t MAX_PASSWORD_LENGTH = 128;
+
 struct PasswordHashOptions {
     unsigned long long opslimit{};
     std::size_t memlimit{};

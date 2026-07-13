@@ -4,7 +4,7 @@ BlogAlone是一个使用C++20、Drogon和SQLite构建的小型中文论坛。
 
 ## Windows构建
 
-构建环境需要Visual Studio2022、MSVC v143、Windows SDK、CMake3.25或更高版本。依赖通过vcpkg清单安装。CMake会查找`VCPKG_ROOT`，也会检查Visual Studio自带的vcpkg。
+构建环境需要Visual Studio2026或Visual Studio2022、Windows SDK、CMake3.25或更高版本。依赖通过vcpkg清单安装。CMake会查找`VCPKG_ROOT`，也会检查Visual Studio自带的vcpkg。默认预设`windows-vs`使用Visual Studio2026 Community。
 
 ```powershell
 cmake --preset windows-vs
@@ -13,6 +13,14 @@ ctest --preset windows-vs-debug --output-on-failure
 ```
 
 编译产物位于`build-msvc\Debug`。
+
+使用Visual Studio2022时改用对应预设，编译产物位于`build-msvc-vs2022\Debug`：
+
+```powershell
+cmake --preset windows-vs2022
+cmake --build --preset windows-vs2022-debug --target blogalone blogalone_unit_tests blogalone_integration_tests
+ctest --preset windows-vs2022-debug --output-on-failure
+```
 
 ## Linux构建
 

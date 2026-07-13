@@ -314,7 +314,7 @@ GET    /api/admin/deleted/sub_posts?page&page_size
 
 `GET /api/admin/sessions`列出会话表记录,供撤销会话前定位`token_hash`。`user_id`可选,省略时返回所有用户的会话。每条记录包含`token_hash`(撤销操作用的稳定标识,不是明文token)、`user_id`、`username`、`created_at`、`expires_at`、`revoked_at`、`admin_confirmed_at`、`ip`、`user_agent`,按`created_at`倒序排列。
 
-`GET /api/admin/deleted/threads`、`GET /api/admin/deleted/posts`、`GET /api/admin/deleted/sub_posts`分别列出`is_deleted=1`的主题、楼层、楼中楼,按`deleted_at`倒序排列,用于管理员恢复内容前定位目标。主题记录包含`id`、所属板块(`forum.id/slug/name`)、作者(`author.id/username`)、`title`、`body_excerpt`(正文前200字节,按UTF-8边界截断)、`deleted_by`(执行删除的管理员,可能为空表示由内容作者自行删除)、`deleted_at`。楼层记录额外包含`thread_id`、`thread_title`、`floor_no`;楼中楼记录额外包含`post_id`、`thread_id`、`thread_title`。恢复操作复用已有的`PATCH /api/admin/{threads,posts,sub_posts}/:id/delete`,请求体传`{"is_deleted":false}`。这四个新增接口都是只读列表,不要求10分钟内二次确认;实际的删除/恢复、封禁、授权和撤销会话仍然维持原有的二次确认要求。
+`GET /api/admin/deleted/threads`、`GET /api/admin/deleted/posts`、`GET /api/admin/deleted/sub_posts`分别列出`is_deleted=1`的主题、楼层、楼中楼,按`deleted_at`倒序排列,用于管理员恢复内容前定位目标。主题记录包含`id`、所属板块(`forum.id/slug/name`)、作者(`author.id/username`)、`title`、`body_excerpt`(正文前200字节,按UTF-8边界截断)、`deleted_by`(执行删除的管理员,可能为空表示由内容作者自行删除)、`deleted_at`。楼层记录额外包含`thread_id`、`thread_title`、`floor_no`;楼中楼记录额外包含`post_id`、`thread_id`、`thread_title`。恢复操作复用已有的`PATCH /api/admin/{threads,posts,sub_posts}/:id/delete`,请求体传`{"is_deleted":false}`。这些只读列表与内容删除、恢复接口不要求10分钟内二次确认。管理员授权、封禁和撤销会话仍然维持原有的二次确认要求。
 
 `PATCH /api/admin/users/:id/role`的请求体只接受`{"role":"admin"}`和`{"role":"user"}`。角色变更成功后返回目标用户的最新资料。管理员列表通过`GET /api/admin/users?role=admin`获取，普通用户检索通过`role=user`或省略`role`完成。
 
